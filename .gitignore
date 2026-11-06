@@ -1,0 +1,80 @@
+# Build outputs
+bin/
+obj/
+build-output*/
+build-final/
+installer-output/
+
+# Visual Studio / Rider
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.cache
+*.DotSettings.user
+
+# Rider
+_ReSharper*/
+*.sln.iml
+
+# .NET
+*.dll.config
+*.cache
+*.pdb
+*.tmp
+*.log
+*.vspscc
+*.vssscc
+
+# User-specific files
+*.pidb
+*.userprefs
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin
+$RECYCLE.BIN/
+
+# Windows shortcuts
+*.lnk
+
+# Installer cache
+*.exe.config
+
+# Publish profiles
+*.pubxml
+*.publishproj
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+
+# Test results
+TestResults/
+*.trx
+
+# Temporary files
+*~
+*.swp
+*.swo
+.DS_Store

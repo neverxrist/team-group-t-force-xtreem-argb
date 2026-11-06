@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>XtreemRgbToggle</AssemblyName>
+    <RootNamespace>XtreemRgbToggle</RootNamespace>
+    <Version>1.1.0</Version>
+    <Description>RGB Control for TEAMGROUP T-Force XTREEM ARGB DDR4 via PawnIO SMBus</Description>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>false</PublishSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\native\PawnIOLib.dll" Link="PawnIOLib.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\native\SmbusPIIX4.bin" Link="SmbusPIIX4.bin" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
