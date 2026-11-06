@@ -28,8 +28,8 @@ jobs:
       
     - name: Restore and Build
       run: |
-        dotnet restore XtreemRgbToggle/XtreemRgbToggle.csproj
-        dotnet publish XtreemRgbToggle/XtreemRgbToggle.csproj -c Release -r win-x64 --self-contained false -o publish-win-x64
+        dotnet restore XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj
+        dotnet publish XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj -c Release -r win-x64 --self-contained false -o publish-win-x64
       
     - name: Package portable ZIP
       run: |

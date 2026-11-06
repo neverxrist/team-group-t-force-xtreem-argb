@@ -23,13 +23,13 @@ jobs:
         dotnet-version: '8.0.x'
         
     - name: Restore dependencies
-      run: dotnet restore XtreemRgbToggle/XtreemRgbToggle.csproj
+      run: dotnet restore XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj
       
     - name: Build
-      run: dotnet build XtreemRgbToggle/XtreemRgbToggle.csproj -c Release --no-restore
+      run: dotnet build XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj -c Release --no-restore
       
     - name: Publish win-x64
-      run: dotnet publish XtreemRgbToggle/XtreemRgbToggle.csproj -c Release -r win-x64 --self-contained false --no-build -o publish-win-x64
+      run: dotnet publish XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj -c Release -r win-x64 --self-contained false --no-build -o publish-win-x64
       
     - name: Verify native dependencies
       run: |
