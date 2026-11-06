@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\native\PawnIOLib.dll" Link="PawnIOLib.dll" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\native\SmbusPIIX4.bin" Link="SmbusPIIX4.bin" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\PawnIOLib.dll" Link="PawnIOLib.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\native\SmbusPIIX4.bin" Link="SmbusPIIX4.bin" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
