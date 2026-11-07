@@ -130,11 +130,17 @@ See [EFFECTS_RESEARCH.md](EFFECTS_RESEARCH.md) for complete mode table and regis
 - Stop ASUS Aura/Armoury Crate (conflicts with direct SMBus access)
 - Verify PawnIOLib.dll and SmbusPIIX4.bin are in same folder as exe
 
-**Spinning cursor / hung UI:**
-- Fixed in latest version (cursor state management improved)
+**Performance issues / slow startup:**
+- Enable diagnostic logging to measure actual timings:
+  ```cmd
+  set XTREEM_DIAG=1
+  XtreemRgbToggle.exe
+  ```
+- Check `%LocalAppData%\XtreemRgbToggle\diagnostic.log` for operation timings
+- Report log with any performance issues
 
 **Autostart doesn't work:**
-- Open Task Scheduler → Find `XtreemRgbToggle_AutoOff`
+- Open Task Scheduler → Find `XtreemRgbToggle-Off`
 - Verify: Enabled, "Run with highest privileges" checked
 - Trigger: "At log on" with PT0S (zero) delay
 
