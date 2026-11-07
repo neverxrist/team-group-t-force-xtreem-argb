@@ -8,7 +8,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/out)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/out)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/out)
 
-add_compile_definitions(UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+add_compile_definitions(UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 
 set(LOGIC_SRC
   src/diag.cpp
@@ -29,6 +29,8 @@ add_executable(XtreemRgbToggle WIN32
 target_include_directories(XtreemRgbToggle PRIVATE src)
 target_link_libraries(XtreemRgbToggle PRIVATE comctl32 comdlg32 shell32 advapi32 user32 gdi32)
 target_compile_options(XtreemRgbToggle PRIVATE /W3 /EHsc /utf-8)
+# CMake/MSVC embeds asInvoker; app.manifest requests requireAdministrator. Keep ours only.
+target_link_options(XtreemRgbToggle PRIVATE /MANIFESTUAC:NO)
 
 add_executable(xtreem_logic_tests
   ${LOGIC_SRC}
@@ -46,3 +48,4 @@ add_executable(xtreem_gui_smoke WIN32
 target_link_libraries(xtreem_gui_smoke PRIVATE user32)
 target_compile_definitions(xtreem_gui_smoke PRIVATE XTREEM_GUI_SMOKE)
 target_compile_options(xtreem_gui_smoke PRIVATE /W3 /utf-8)
+target_link_options(xtreem_gui_smoke PRIVATE /MANIFESTUAC:NO)

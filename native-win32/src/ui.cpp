@@ -177,10 +177,7 @@ static void queue_color(bool preview) {
     j.g = (uint8_t)SendMessageW(g->hG, TBM_GETPOS, 0, 0);
     j.b = (uint8_t)SendMessageW(g->hB, TBM_GETPOS, 0, 0);
     if (preview) {
-        auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - g->last_preview).count() < PREVIEW_MS)
-            ; // worker still latest-wins
-        g->last_preview = now;
+        g->last_preview = std::chrono::steady_clock::now();
     } else {
         g->busy = true;
         SetWindowTextW(g->hStatus, L"Status: Applying color...");
