@@ -8,12 +8,18 @@
 #include <cctype>
 
 std::wstring appdata_dir() {
+    std::error_code ec;
+    if (const wchar_t* e = _wgetenv(L"XTREEM_STATE_DIR")) {
+        if (e[0]) {
+            std::filesystem::create_directories(e, ec);
+            return e;
+        }
+    }
     wchar_t buf[MAX_PATH]{};
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, buf)))
         return L"";
     std::filesystem::path p = buf;
     p /= L"XtreemRgbToggle";
-    std::error_code ec;
     std::filesystem::create_directories(p, ec);
     return p.wstring();
 }

@@ -15,13 +15,20 @@ bool autostart_can_cache(AutostartInstallState s) {
     return s == AutostartInstallState::Installed || s == AutostartInstallState::NotInstalled;
 }
 
+static bool g_allow_child = true;
+void autostart_set_allow_child_processes(bool allow) { g_allow_child = allow; }
+bool autostart_allow_child_processes() { return g_allow_child; }
+
 static int run_hidden(const std::wstring& cmd, DWORD timeout_ms, DWORD* exit_out) {
+    if (!g_allow_child) return -1;
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION pi{};
     std::wstring mutable_cmd = cmd;
+    // schtasks.exe is a console subsystem binary. CREATE_NO_WINDOW avoids a console.
+    // This process never launches cmd.exe.
     if (!CreateProcessW(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
                         CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
         return -1;

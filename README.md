@@ -2,7 +2,7 @@
 
 Lightweight Windows utility for controlling TEAMGROUP T-Force XTREEM ARGB DDR4 RAM RGB lighting on AMD Ryzen platforms.
 
-A native Win32 C++ portable build lives in [`native-win32/`](native-win32/README.md) (no .NET). The C# WinForms tree remains. The native GUI probes PawnIO **before** any SMBus work and shows a classified driver status plus **Open official PawnIO page** / **Retry after installing** at the top of the window. The C# GUI does not: it only hits the driver inside `AmdSmBus.Open` and lumps `pawnio_version` failures as “not installed or not loaded”. The PawnIO **kernel driver** is still installed only from [pawnio.eu](https://pawnio.eu) by the user; this app never downloads the installer; bundled DLL/bin are not that driver.
+A native Win32 C++ portable build lives in [`native-win32/`](native-win32/README.md) (no .NET). The C# WinForms tree remains. The native GUI probes PawnIO **before** any SMBus work and shows a classified driver status plus **Open official PawnIO page** / **Retry after installing** at the top of the window. Off and T-Force Default are in the Effect list (Off is not Static). GUI/tray/restore/off do not AllocConsole. Minimize goes to tray; Close and tray Exit quit. The C# GUI does not probe first: it only hits the driver inside `AmdSmBus.Open` and lumps `pawnio_version` failures as “not installed or not loaded”. The PawnIO **kernel driver** is still installed only from [pawnio.eu](https://pawnio.eu) by the user; this app never downloads the installer; bundled DLL/bin are not that driver.
 
 ## Features
 

@@ -1,11 +1,10 @@
 #include "ui.hpp"
+#include "cli.hpp"
 #include "xtreem.hpp"
 #include "persist.hpp"
 #include "autostart.hpp"
 #include "diag.hpp"
 #include <windows.h>
-#include <string>
-#include <vector>
 #include <io.h>
 #include <fcntl.h>
 #include <iostream>
@@ -17,7 +16,18 @@ static std::wstring exe_path() {
     GetModuleFileNameW(nullptr, buf, MAX_PATH);
     return buf;
 }
-static void ensure_console() {
+
+// GUI/tray/restore/off never AllocConsole (no window titled with this exe path).
+// Interactive CLI attaches to a parent console if present, otherwise AllocConsole.
+static void setup_cli_console(bool alloc_if_none) {
+    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+        FILE* f = nullptr;
+        freopen_s(&f, "CONOUT$", "w", stdout);
+        freopen_s(&f, "CONOUT$", "w", stderr);
+        freopen_s(&f, "CONIN$", "r", stdin);
+        return;
+    }
+    if (!alloc_if_none) return;
     if (!GetConsoleWindow()) {
         AllocConsole();
         FILE* f = nullptr;
@@ -26,6 +36,7 @@ static void ensure_console() {
         freopen_s(&f, "CONIN$", "r", stdin);
     }
 }
+
 static int fail_driver(const PawnioProbe& p) {
     std::wcerr << p.message << L"\n" << pawnio_next_step(p.status) << L"\n"
                << L"PawnIOLib.dll and SmbusPIIX4.bin are user-mode files, not the kernel driver.\n";
@@ -74,21 +85,21 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int) {
     if (low.find(L"--diag") != std::wstring::npos || getenv("XTREEM_DIAG"))
         diag::enable(true);
 
-    auto first = low;
-    // isolate first token
-    while (!first.empty() && first[0] == L' ') first.erase(0, 1);
-    auto sp = first.find(L' ');
-    std::wstring tok = sp == std::wstring::npos ? first : first.substr(0, sp);
-    if (tok.size() >= 2 && tok.front() == L'"') tok = tok.substr(1, tok.size() - 2);
+    auto tok = cli_first_token(cl);
+    auto kind = classify_cli_token(tok);
 
-    if (tok.empty() || tok == L"gui" || tok == L"ui")
-        return run_gui(inst, dir.c_str(), false);
-    if (tok == L"--gui-smoke")
-        return run_gui(inst, dir.c_str(), true);
-    if (tok == L"tray")
+    if (kind == CliKind::Gui) {
+        detach_console_for_gui();
+        return run_gui(inst, dir.c_str(), GuiMode::Normal, nullptr);
+    }
+    if (kind == CliKind::Tray) {
+        detach_console_for_gui();
         return run_tray(inst, dir.c_str());
+    }
+    if (kind == CliKind::GuiTest)
+        return run_gui_self_test(inst);
 
-    ensure_console();
+    setup_cli_console(kind == CliKind::InteractiveCli);
     try {
         if (tok == L"off") return cmd_once(dir, true);
         if (tok == L"on") return cmd_once(dir, false);
@@ -128,14 +139,17 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int) {
             return 0;
         }
         std::wcout <<
-            L"XtreemRgbToggle (native Win32)\n"
-            L"  (no args)  GUI\n"
-            L"  off|on|toggle|detect|status|debug|restore\n"
-            L"  install-autostart | uninstall-autostart | tray\n"
+            L"XtreemRgbToggle (native Win32, /SUBSYSTEM:WINDOWS)\n"
+            L"  (no args) | gui     GUI (no console window)\n"
+            L"  tray               start in tray; Open / Exit on the icon. Minimize hides to tray. Close quits.\n"
+            L"  off|on|toggle|restore   hardware then exit (no new console; attach parent if launched from cmd)\n"
+            L"  detect|status|debug|help   print to a console (allocates one only if no parent)\n"
+            L"  install-autostart | uninstall-autostart\n"
             L"PawnIO kernel driver: https://pawnio.eu (not bundled, not auto-installed).\n"
-            L"GUI: top of the window probes PawnIO before hardware; Open official page + Retry.\n";
+            L"GUI: Effect list includes Off (LEDs black, not Static) and T-Force Default.\n";
         return tok == L"help" || tok == L"-h" || tok == L"--help" ? 0 : 2;
     } catch (const std::exception& ex) {
+        setup_cli_console(true);
         std::cerr << "Error: " << ex.what() << "\n";
         return 1;
     }

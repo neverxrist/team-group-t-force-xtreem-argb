@@ -6,6 +6,9 @@ enum class AutostartInstallState { Unknown, Installed, NotInstalled };
 
 AutostartInstallState autostart_combine(TaskQueryResult current, TaskQueryResult legacy);
 bool autostart_can_cache(AutostartInstallState s);
+// Tests and WM_ENDSESSION must not spawn schtasks.exe / cmd.exe.
+void autostart_set_allow_child_processes(bool allow);
+bool autostart_allow_child_processes();
 
 struct Autostart {
     static constexpr const wchar_t* kTask = L"XtreemRgbToggle-Off";

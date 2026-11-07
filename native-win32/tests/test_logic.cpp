@@ -4,6 +4,8 @@
 #include "smbus.hpp"
 #include "xtreem.hpp"
 #include "pawnio.hpp"
+#include "cli.hpp"
+#include "hw_worker.hpp"
 #include <windows.h>
 #include <winsvc.h>
 #include <iostream>
@@ -117,6 +119,59 @@ int main() {
     });
     CHECK(found.size() == 1);
     CHECK(found[0].address7 == 0x39);
+
+    CHECK(classify_cli_token(cli_first_token(L"")) == CliKind::Gui);
+    CHECK(classify_cli_token(cli_first_token(L"--diag")) == CliKind::Gui);
+    CHECK(classify_cli_token(cli_first_token(L"  GUI")) == CliKind::Gui);
+    CHECK(classify_cli_token(L"tray") == CliKind::Tray);
+    CHECK(classify_cli_token(L"off") == CliKind::SilentHw);
+    CHECK(classify_cli_token(L"restore") == CliKind::SilentHw);
+    CHECK(classify_cli_token(L"detect") == CliKind::InteractiveCli);
+    CHECK(effect_apply_path(MODE_OFF) == EffectApplyPath::LightsOff);
+    CHECK(effect_apply_path(MODE_STATIC) == EffectApplyPath::Effect);
+    CHECK(effect_apply_path(MODE_TFORCE_DEFAULT) == EffectApplyPath::TforceDefault);
+
+    {
+        auto tdir = tmp / "state_env";
+        std::filesystem::create_directories(tdir);
+        SetEnvironmentVariableW(L"XTREEM_STATE_DIR", tdir.wstring().c_str());
+        save_state(LightState::Off);
+        CHECK(load_state() == LightState::Off);
+        SetEnvironmentVariableW(L"XTREEM_STATE_DIR", nullptr);
+    }
+
+    {
+        FakeHw f;
+        f.probe.status = PawnioStatus::Ready;
+        f.probe.message = L"fake";
+        f.devices = { {0x39, 0} };
+        f.stall_ms = 70;
+        {
+            HwWorker w(L".", &f);
+            HwJob a; a.kind = HwKind::PreviewColor; a.r = 1; a.devices = f.devices;
+            w.post(a);
+            Sleep(15);
+            a.r = 2; w.post(a);
+            a.r = 9; w.post(a);
+            Sleep(400);
+        }
+        CHECK(f.last_r == 9);
+        CHECK(f.preview_n >= 1);
+        CHECK(f.preview_n <= 2);
+        CHECK(!f.used_real_hardware);
+    }
+    {
+        FakeHw f;
+        f.probe.status = PawnioStatus::Ready;
+        f.devices = { {0x39, 0} };
+        f.stall_ms = 120;
+        {
+            HwWorker w(L".", &f);
+            HwJob j; j.kind = HwKind::Off; j.devices = f.devices;
+            w.post(j);
+        }
+        CHECK(!f.used_real_hardware);
+    }
 
     if (g_fail) { std::cerr << g_fail << " failed\n"; return 1; }
     std::cout << "All logic tests passed\n";

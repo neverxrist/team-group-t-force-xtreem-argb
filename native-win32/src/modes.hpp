@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <cstdio>
+#include <wchar.h>
 
 struct ModeInfo {
     uint8_t value;
@@ -50,6 +52,24 @@ inline constexpr ModeInfo kModes[] = {
     {25, "T-Force Xtreem Default", false, true, false},
 };
 inline constexpr int kModeCount = (int)(sizeof(kModes) / sizeof(kModes[0]));
+
+// Off (0x00) is lights-off (mode OFF + direct black), not Static (0x01).
+enum class EffectApplyPath { LightsOff, TforceDefault, Effect };
+inline EffectApplyPath effect_apply_path(uint8_t mode) {
+    if (mode == MODE_OFF) return EffectApplyPath::LightsOff;
+    if (mode == MODE_TFORCE_DEFAULT) return EffectApplyPath::TforceDefault;
+    return EffectApplyPath::Effect;
+}
+inline void format_effect_label(wchar_t* out, size_t n, const ModeInfo& m) {
+    if (m.value == MODE_OFF)
+        swprintf(out, n, L"Off (LEDs black) 0x00 — not Static");
+    else if (m.value == MODE_STATIC)
+        swprintf(out, n, L"Static (mode 0x01) — not Off");
+    else if (m.value == MODE_TFORCE_DEFAULT)
+        swprintf(out, n, L"T-Force Default 0x19");
+    else
+        swprintf(out, n, L"%S (0x%02X)", m.name, m.value);
+}
 
 inline uint8_t speed_from_slider(int v) {
     switch (v) {

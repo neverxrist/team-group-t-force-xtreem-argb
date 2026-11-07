@@ -4,14 +4,14 @@ Compact portable Windows x64 rewrite of the C# WinForms app. The C# tree is unch
 
 ## PawnIO check / install (native GUI — this is where it lives)
 
-The driver check is the **top of the main window**, before OFF/ON/effects/color. Hardware buttons stay disabled until the probe reports **Ready**.
+The driver check is the **top of the main window**, before effects/color. Hardware controls stay disabled until the probe reports **Ready**. Large ON/OFF buttons are removed; **Off (LEDs black)** and **T-Force Default** are in the Effect list. Off is not Static (0x01).
 
 On startup (and on **Retry after installing** / **Rescan modules**):
 
 1. Status line: `Checking PawnIO driver...` — **no SMBus / module detect yet**.
 2. Probe looks at, in order: bundled `PawnIOLib.dll`, bundled `SmbusPIIX4.bin`, Windows service `PawnIO`, then `pawnio_version` + `pawnio_open`.
 3. The PawnIO status label shows one classified result (HRESULT included). Failures are **not** all labeled “missing driver”.
-4. If the probe is not Ready, a dialog explains the **specific** class and the next step. OFF/ON/effects stay off.
+4. If the probe is not Ready, a dialog explains the **specific** class and the next step. Effect/color stay disabled.
 5. **Official PawnIO download/install page** is a SysLink `https://pawnio.eu` plus the button **Open official PawnIO page**. Both only `ShellExecute` the official site. Re-verified 2026-11-07: that page’s “Download Now” is `https://github.com/namazso/PawnIO.Setup/releases/latest/download/PawnIO_setup.exe`. This program does **not** download or run that installer.
 6. After you install the kernel driver yourself, click **Retry after installing**. The probe runs again; only then is module detect allowed.
 
@@ -30,9 +30,12 @@ No automatic installer. Bundled DLL/bin are never treated as an installed kernel
 
 ## Run
 
-Extract the portable ZIP. Right-click `XtreemRgbToggle.exe` → Run as administrator.
+Extract the portable ZIP. Right-click `XtreemRgbToggle.exe` → Run as administrator. The exe is `/SUBSYSTEM:WINDOWS`. Double-click / `gui` / `tray` / `restore` / `off` / `on` / `toggle` do **not** AllocConsole (no extra console titled with the exe path). From cmd.exe, those commands AttachConsole to the parent so you still see output. `detect` / `status` / `debug` / `help` allocate a console only if there is no parent.
 
-CLI: `off` `on` `toggle` `detect` `status` `debug` `restore` `install-autostart` `uninstall-autostart` `tray`. `restore` applies `%LocalAppData%\XtreemRgbToggle\profile.json` then exits (`state.txt` off/on if no JSON). `XTREEM_DIAG=1` or `--diag` writes `%LocalAppData%\XtreemRgbToggle\diagnostic.log`.
+- **Close** and tray **Exit** quit (icon removed, worker joined). **Minimize** hides to tray; tray **Open** (or double-click) restores. `tray` starts hidden with an icon.
+- Autostart still runs `off` at logon (silent, no new console). Child process is `schtasks.exe` with `CREATE_NO_WINDOW`; this app does not launch `cmd.exe`.
+
+CLI: `off` `on` `toggle` `detect` `status` `debug` `restore` `install-autostart` `uninstall-autostart` `tray`. `restore` applies `%LocalAppData%\XtreemRgbToggle\profile.json` then exits (`state.txt` off/on if no JSON). `XTREEM_DIAG=1` or `--diag` writes `%LocalAppData%\XtreemRgbToggle\diagnostic.log`. `--diag` alone still opens the GUI.
 
 ## Build (Windows, MSVC)
 
@@ -42,6 +45,8 @@ cmake --build native-win32/build
 native-win32\build\out\xtreem_logic_tests.exe
 native-win32\build\out\xtreem_gui_smoke.exe
 ```
+
+`xtreem_gui_smoke` runs the real main window against an in-process `FakeHw` (no PawnIO/SMBus): probe/detect, Off vs T-Force vs effect dispatch, module select, color, live-preview coalescing, profile persist, driver-missing Retry, minimize/tray Open, close while a job is pending.
 
 Visual Studio generator also works if vswhere finds it (`-G "Visual Studio 17 2022" -A x64`); binaries still go to `native-win32/build/out/`.
 
@@ -61,4 +66,4 @@ Looked up in `XtreemRgbToggle/XtreemRgbToggle/AmdSmBus.cs` and `RgbControlForm.c
 
 ## Limits
 
-No Windows GUI/hardware timing was measured in this Linux environment. Logic tests and a GUI-smoke window (no PawnIO) run in CI. No Setup.exe. Automatic PawnIO install remains out of scope unless a later change verifies the vendor installer and is separately authorized.
+No Windows GUI/hardware timing was measured in this Linux environment. Logic tests and the FakeHw main-window smoke run in CI. One-off cmd.exe errors at Windows shutdown were not reproduced here and are not diagnosed as a missing-driver or AllocConsole issue; shutdown path now skips schtasks spawn, drops queued jobs, and joins the worker. No Setup.exe. Automatic PawnIO install remains out of scope unless a later change verifies the vendor installer and is separately authorized.

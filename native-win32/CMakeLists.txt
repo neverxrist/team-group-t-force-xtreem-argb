@@ -30,7 +30,7 @@ target_include_directories(XtreemRgbToggle PRIVATE src)
 target_link_libraries(XtreemRgbToggle PRIVATE comctl32 comdlg32 shell32 advapi32 user32 gdi32)
 target_compile_options(XtreemRgbToggle PRIVATE /W3 /EHsc /utf-8)
 # CMake/MSVC embeds asInvoker; app.manifest requests requireAdministrator. Keep ours only.
-target_link_options(XtreemRgbToggle PRIVATE /MANIFESTUAC:NO)
+target_link_options(XtreemRgbToggle PRIVATE /SUBSYSTEM:WINDOWS /MANIFESTUAC:NO)
 
 add_executable(xtreem_logic_tests
   ${LOGIC_SRC}
@@ -42,10 +42,13 @@ target_link_libraries(xtreem_logic_tests PRIVATE advapi32 shell32 ole32)
 target_compile_options(xtreem_logic_tests PRIVATE /W3 /EHsc /utf-8)
 
 add_executable(xtreem_gui_smoke WIN32
+  ${LOGIC_SRC}
+  src/ui.cpp
   tests/test_gui_smoke.cpp
   app.manifest
 )
-target_link_libraries(xtreem_gui_smoke PRIVATE user32)
+target_include_directories(xtreem_gui_smoke PRIVATE src)
+target_link_libraries(xtreem_gui_smoke PRIVATE comctl32 comdlg32 shell32 advapi32 user32 gdi32)
 target_compile_definitions(xtreem_gui_smoke PRIVATE XTREEM_GUI_SMOKE)
-target_compile_options(xtreem_gui_smoke PRIVATE /W3 /utf-8)
-target_link_options(xtreem_gui_smoke PRIVATE /MANIFESTUAC:NO)
+target_compile_options(xtreem_gui_smoke PRIVATE /W3 /EHsc /utf-8)
+target_link_options(xtreem_gui_smoke PRIVATE /SUBSYSTEM:WINDOWS /MANIFESTUAC:NO)
