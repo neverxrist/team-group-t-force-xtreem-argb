@@ -176,7 +176,7 @@ void XtreemHardware::apply_effect_all(const std::vector<XtreemDevice>& devs, uin
 }
 void XtreemHardware::apply_color(const std::vector<XtreemDevice>& devs, uint8_t r, uint8_t g, uint8_t b) {
     diag::Timer t("ApplyStaticColor");
-    foreach_port(devs, [&](ISmBus& b, const auto& grp) { apply_static_color(b, grp, r, g, b); });
+    foreach_port(devs, [&](ISmBus& bus, const auto& grp) { apply_static_color(bus, grp, r, g, b); });
 }
 void XtreemHardware::restore_profile(const std::vector<XtreemDevice>& found, const Profile& p) {
     for (auto& m : p.modules) {
