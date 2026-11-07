@@ -20,6 +20,9 @@ internal sealed class RgbControlForm : Form
     private byte _pendingR, _pendingG, _pendingB;
     private bool _hasPendingColor;
     
+    private bool _autostartStatusLoaded;
+    private bool _autostartStatusCached;
+    
     // Modern color palette
     private static readonly Color ColorPrimary = Color.FromArgb(24, 119, 242);
     private static readonly Color ColorSuccess = Color.FromArgb(76, 175, 80);
@@ -64,6 +67,14 @@ internal sealed class RgbControlForm : Form
 
     public RgbControlForm()
     {
+        using var timer = DiagnosticTimer.Start("RgbControlForm.Constructor");
+        
+        // Enable diagnostic logging if env var set
+        if (Environment.GetEnvironmentVariable("XTREEM_DIAG") == "1")
+        {
+            DiagnosticTimer.Enabled = true;
+        }
+        
         Text = "XTREEM RGB Control";
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScroll = true;
@@ -378,7 +389,11 @@ internal sealed class RgbControlForm : Form
         };
 
         FormClosing += (_, _) => CancelPendingPreview();
-        Shown += (_, _) => StartDetect();
+        Shown += async (_, _) =>
+        {
+            DiagnosticTimer.Log("Form shown (first paint complete)");
+            await InitializeAsync();
+        };
     }
 
     private GroupBox CreateGroupBox(string title)
@@ -481,14 +496,22 @@ internal sealed class RgbControlForm : Form
     
     private void RefreshAutostartButtons(bool busy)
     {
-        bool isInstalled = CheckAutostartTaskExists();
+        if (!_autostartStatusLoaded)
+        {
+            // Status not yet loaded: show both buttons disabled
+            _btnInstallAutostart.Enabled = false;
+            _btnRemoveAutostart.Enabled = false;
+            _btnInstallAutostart.Text = "Install Autostart (loading...)";
+            _btnRemoveAutostart.Text = "Remove Autostart (loading...)";
+            return;
+        }
+        
+        // Status loaded: enable appropriate button
+        bool isInstalled = _autostartStatusCached;
         _btnInstallAutostart.Enabled = !busy && !isInstalled;
         _btnRemoveAutostart.Enabled = !busy && isInstalled;
-    }
-    
-    private bool CheckAutostartTaskExists()
-    {
-        return AutostartHelper.IsInstalled();
+        _btnInstallAutostart.Text = "Install Autostart";
+        _btnRemoveAutostart.Text = "Remove Autostart";
     }
 
     private void RefreshStatus()
@@ -510,52 +533,106 @@ internal sealed class RgbControlForm : Form
         }
     }
 
+    private async Task InitializeAsync()
+    {
+        using var timer = DiagnosticTimer.Start("InitializeAsync (total)");
+        
+        // Start both operations in parallel (don't block on either)
+        var autostartTask = LoadAutostartStatusAsync();
+        var detectTask = StartDetectAsync();
+        
+        // Wait for both
+        await Task.WhenAll(autostartTask, detectTask);
+        
+        DiagnosticTimer.Log("InitializeAsync complete (form ready for commands)");
+    }
+    
+    private async Task LoadAutostartStatusAsync()
+    {
+        using var timer = DiagnosticTimer.Start("LoadAutostartStatusAsync");
+        
+        try
+        {
+            bool status = await AutostartHelper.IsInstalledAsync();
+            
+            Ui(() =>
+            {
+                _autostartStatusCached = status;
+                _autostartStatusLoaded = true;
+                RefreshAutostartButtons(false);
+            });
+        }
+        catch (Exception ex)
+        {
+            DiagnosticTimer.Log($"LoadAutostartStatusAsync failed: {ex.Message}");
+            Ui(() =>
+            {
+                _autostartStatusLoaded = true; // Mark as loaded even on error
+                RefreshAutostartButtons(false);
+            });
+        }
+    }
+    
+    private async Task StartDetectAsync()
+    {
+        using var timer = DiagnosticTimer.Start("StartDetectAsync");
+        
+        Ui(() =>
+        {
+            if (_busy) return;
+            CancelPendingPreview();
+            SetBusy(true);
+            _statusLabel.Text = "Status: Detecting modules...";
+        });
+        
+        try
+        {
+            var found = await Task.Run(() =>
+            {
+                using var detectTimer = DiagnosticTimer.Start("Hardware detection");
+                return _svc.DetectAndRemap(verbose: false);
+            });
+            
+            Ui(() =>
+            {
+                try
+                {
+                    _cachedDevices = found;
+                    UpdateModuleRadioButtons();
+                    RefreshStatus();
+                    _statusLabel.Text = found.Count > 0 ? "Status: Ready" : "Status: No modules";
+                    DiagnosticTimer.Log($"Detection complete: {found.Count} modules found");
+                }
+                finally
+                {
+                    SetBusy(false);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            DiagnosticTimer.Log($"Detection failed: {ex.Message}");
+            Ui(() =>
+            {
+                try
+                {
+                    _statusLabel.Text = "Status: Detection failed";
+                    MessageBox.Show(this, $"Detection error: {ex.Message}", "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    RefreshStatus();
+                }
+                finally
+                {
+                    SetBusy(false);
+                }
+            });
+        }
+    }
+    
     private void StartDetect()
     {
-        if (_busy) return;
-        
-        CancelPendingPreview();
-        SetBusy(true);
-        _statusLabel.Text = "Status: Detecting...";
-        
-        Task.Run(() =>
-        {
-            try
-            {
-                var found = _svc.DetectAndRemap(verbose: false);
-                Ui(() =>
-                {
-                    try
-                    {
-                        _cachedDevices = found;
-                        UpdateModuleRadioButtons();
-                        RefreshStatus();
-                        _statusLabel.Text = found.Count > 0 ? "Status: Ready" : "Status: No modules";
-                    }
-                    finally
-                    {
-                        SetBusy(false);
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                Ui(() =>
-                {
-                    try
-                    {
-                        _statusLabel.Text = "Status: Detection failed";
-                        MessageBox.Show(this, $"Detection error: {ex.Message}", "Error",
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        RefreshStatus();
-                    }
-                    finally
-                    {
-                        SetBusy(false);
-                    }
-                });
-            }
-        });
+        // Synchronous wrapper for button click
+        _ = StartDetectAsync();
     }
 
     private void UpdateModuleRadioButtons()
@@ -798,70 +875,72 @@ internal sealed class RgbControlForm : Form
         });
     }
 
-    private void InstallAutostart()
+    private async void InstallAutostart()
     {
+        using var timer = DiagnosticTimer.Start("InstallAutostart");
+        
+        SetBusy(true);
         try
         {
-            AutostartHelper.Install();
+            await Task.Run(() => AutostartHelper.Install());
             
-            if (CheckAutostartTaskExists())
-            {
-                MessageBox.Show(this,
-                    "Autostart installed successfully.\n\n" +
-                    "Task: XtreemRgbToggle.exe off at login\n" +
-                    "Priority: Highest\n" +
-                    "Delay: None\n\n" +
-                    "Note: Elevated scheduled tasks do not appear in\n" +
-                    "Task Manager Startup tab. Managed via Task Scheduler.",
-                    "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            else
-            {
-                MessageBox.Show(this,
-                    "Task creation completed, but verification failed.\n" +
-                    "Check Task Scheduler manually: XtreemRgbToggle_AutoOff",
-                    "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+            // Reload status
+            _autostartStatusCached = await AutostartHelper.IsInstalledAsync();
+            
+            MessageBox.Show(this,
+                "Autostart installed successfully.\n\n" +
+                "Task: XtreemRgbToggle.exe off at login\n" +
+                "Priority: Highest\n" +
+                "Delay: None\n\n" +
+                "Note: Elevated scheduled tasks do not appear in\n" +
+                "Task Manager Startup tab. Managed via Task Scheduler.",
+                "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             
             RefreshStatus();
             RefreshAutostartButtons(false);
         }
         catch (Exception ex)
         {
+            DiagnosticTimer.Log($"InstallAutostart failed: {ex.Message}");
             MessageBox.Show(this, $"Installation failed:\n{ex.Message}", "Error",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
             RefreshAutostartButtons(false);
         }
+        finally
+        {
+            SetBusy(false);
+        }
     }
 
-    private void RemoveAutostart()
+    private async void RemoveAutostart()
     {
+        using var timer = DiagnosticTimer.Start("RemoveAutostart");
+        
+        SetBusy(true);
         try
         {
-            AutostartHelper.Uninstall();
+            await Task.Run(() => AutostartHelper.Uninstall());
             
-            if (!CheckAutostartTaskExists())
-            {
-                MessageBox.Show(this, 
-                    "Autostart removed successfully.", 
-                    "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            else
-            {
-                MessageBox.Show(this,
-                    "Task removal completed, but task still exists.\n" +
-                    "Check Task Scheduler manually: XtreemRgbToggle_AutoOff",
-                    "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+            // Reload status
+            _autostartStatusCached = await AutostartHelper.IsInstalledAsync();
+            
+            MessageBox.Show(this, 
+                "Autostart removed successfully.", 
+                "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             
             RefreshStatus();
             RefreshAutostartButtons(false);
         }
         catch (Exception ex)
         {
+            DiagnosticTimer.Log($"RemoveAutostart failed: {ex.Message}");
             MessageBox.Show(this, $"Removal failed:\n{ex.Message}", "Error",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
             RefreshAutostartButtons(false);
+        }
+        finally
+        {
+            SetBusy(false);
         }
     }
     
