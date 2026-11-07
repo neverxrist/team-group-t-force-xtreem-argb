@@ -6,6 +6,9 @@
 #include "pawnio.hpp"
 #include "cli.hpp"
 #include "hw_worker.hpp"
+#include "layout.hpp"
+#include <fstream>
+#include <cstring>
 #include <windows.h>
 #include <winsvc.h>
 #include <iostream>
@@ -100,6 +103,42 @@ int main() {
     CHECK(q.modules[0].address == 0x39);
     CHECK(q.modules[0].r == 10 && q.modules[0].b == 30);
     CHECK(q.modules[1].kind == "off");
+    CHECK(load_profile_status(q, pr.c_str()) == ProfileStatus::Ok);
+    CHECK(profile_restore_action(ProfileStatus::Ok, q.modules.size()) == RestoreAction::Apply);
+    CHECK(profile_restore_action(ProfileStatus::Missing, 0) == RestoreAction::SkipMissing);
+    CHECK(profile_restore_action(ProfileStatus::Corrupt, 1) == RestoreAction::SkipCorrupt);
+    CHECK(profile_restore_action(ProfileStatus::Ok, 0) == RestoreAction::SkipEmpty);
+    {
+        Profile miss;
+        CHECK(load_profile_status(miss, (tmp / L"no-profile.json").c_str()) == ProfileStatus::Missing);
+        auto badp = (tmp / L"bad-profile.json").wstring();
+        {
+            std::ofstream bad(std::filesystem::path(badp), std::ios::binary | std::ios::trunc);
+            bad << "{not-json";
+        }
+        Profile cor;
+        CHECK(load_profile_status(cor, badp.c_str()) == ProfileStatus::Corrupt);
+        CHECK(cor.modules.empty());
+    }
+
+    {
+        auto tr = autostart_tr(L"C:\\app\\XtreemRgbToggle.exe");
+        CHECK(tr.find(L"restore") != std::wstring::npos);
+        CHECK(tr.find(L" off") == std::wstring::npos);
+        auto cmd = autostart_create_cmd(L"C:\\app\\XtreemRgbToggle.exe");
+        CHECK(cmd.find(L"\\\" restore\"") != std::wstring::npos);
+        CHECK(cmd.find(L"\\\" off\"") == std::wstring::npos);
+        CHECK(cmd.find(Autostart::kTask) != std::wstring::npos);
+    }
+
+    for (int dpi : {96, 120, 144, 192}) {
+        for (int n : {0, 1, 2, 4, 8}) {
+            auto b = module_block(n, dpi, scale_px(186, dpi));
+            CHECK(module_block_contains_radios(b));
+            CHECK(b.nmod == n);
+            CHECK(b.group_h > 0);
+        }
+    }
 
     FakeBus bus;
     bus.present[0x39] = true;
@@ -171,6 +210,50 @@ int main() {
             w.post(j);
         }
         CHECK(!f.used_real_hardware);
+    }
+
+    {
+        auto tdir = tmp / "persist_apply";
+        std::filesystem::create_directories(tdir);
+        SetEnvironmentVariableW(L"XTREEM_STATE_DIR", tdir.wstring().c_str());
+        persist_applied_one(0x71, 0, "static", 1, 2, 0, 11, 22, 33);
+        persist_applied_one(0x72, 0, "effect", 5, 1, 1, 0, 0, 0);
+        Profile got;
+        CHECK(load_profile_status(got) == ProfileStatus::Ok);
+        CHECK(got.modules.size() == 2);
+        CHECK(got.modules[0].address == 0x71 && got.modules[0].r == 11);
+        CHECK(got.modules[1].address == 0x72 && got.modules[1].kind == "effect");
+        persist_applied_one(0x71, 0, "static", 1, 2, 0, 99, 22, 33);
+        Profile got2;
+        load_profile(got2);
+        CHECK(got2.modules.size() == 2);
+        for (auto& m : got2.modules)
+            if (m.address == 0x71) CHECK(m.r == 99);
+            else if (m.address == 0x72) CHECK(m.kind == "effect");
+        FakeHw f;
+        f.probe.status = PawnioStatus::Ready;
+        f.devices = { {0x71, 0} };
+        {
+            HwWorker w(L".", &f);
+            HwJob prev; prev.kind = HwKind::PreviewColor; prev.devices = f.devices; prev.r = 7;
+            w.post(prev);
+            Sleep(200);
+            HwJob col; col.kind = HwKind::Color; col.devices = f.devices; col.r = 40; col.g = 41; col.b = 42;
+            col.mode = MODE_STATIC; col.persist = true;
+            strncpy(col.persist_kind, "static", sizeof(col.persist_kind) - 1);
+            w.post(col);
+            Sleep(300);
+        }
+        Profile after;
+        load_profile(after);
+        bool found = false;
+        for (auto& m : after.modules)
+            if (m.address == 0x71) { CHECK(m.r == 40); found = true; }
+        CHECK(found);
+        CHECK(f.preview_n >= 1);
+        CHECK(f.color_n >= 1);
+        CHECK(!f.used_real_hardware);
+        SetEnvironmentVariableW(L"XTREEM_STATE_DIR", nullptr);
     }
 
     if (g_fail) { std::cerr << g_fail << " failed\n"; return 1; }

@@ -1,8 +1,17 @@
 #include "hw_worker.hpp"
 #include "diag.hpp"
+#include "persist.hpp"
 #include <cstring>
 #include <exception>
 #include <windows.h>
+
+static void persist_job(const HwJob& job) {
+    if (!job.persist || !job.persist_kind[0]) return;
+    for (auto& d : job.devices) {
+        persist_applied_one(d.address7, d.bus_port, job.persist_kind,
+                            job.mode, job.speed, job.dir, job.r, job.g, job.b);
+    }
+}
 
 HwWorker::HwWorker(std::wstring exe_dir, FakeHw* fake)
     : dir_(std::move(exe_dir)), fake_(fake) {
@@ -105,10 +114,16 @@ void HwWorker::run_job(HwJob job) {
                 snprintf(line, sizeof(line), "color:%u,%u,%u", job.r, job.g, job.b);
                 fake_->log.push_back(line);
                 break;
+            case HwKind::Restore:
+                fake_->restore_n++;
+                fake_->log.push_back("restore");
+                emit(job.kind, true, L"Restored saved profile", {}, fake_->probe);
+                return;
             default:
                 fake_->log.push_back("other");
                 break;
             }
+            persist_job(job);
             emit(job.kind, true, L"OK", {}, fake_->probe);
             return;
         }
@@ -157,6 +172,9 @@ void HwWorker::run_job(HwJob job) {
         default:
             break;
         }
+        persist_job(job);
+        if (job.kind == HwKind::Restore)
+            msg = L"Restored saved profile";
         emit(job.kind, true, msg, found, hw_->last_probe);
     } catch (const std::exception& ex) {
         std::wstring w(ex.what(), ex.what() + strlen(ex.what()));

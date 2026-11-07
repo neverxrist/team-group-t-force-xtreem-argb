@@ -146,7 +146,42 @@ bool save_profile(const Profile& p, const wchar_t* path) {
     return write_all(profile_path(path), profile_to_json(p));
 }
 bool load_profile(Profile& p, const wchar_t* path) {
-    auto s = read_all(profile_path(path));
-    if (s.empty()) return false;
-    return profile_from_json(s, p);
+    return load_profile_status(p, path) == ProfileStatus::Ok;
+}
+
+ProfileStatus load_profile_status(Profile& p, const wchar_t* path) {
+    p = {};
+    auto file = profile_path(path);
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec) || ec)
+        return ProfileStatus::Missing;
+    auto s = read_all(file);
+    if (s.empty()) return ProfileStatus::Missing;
+    if (!profile_from_json(s, p)) {
+        p = {};
+        return ProfileStatus::Corrupt;
+    }
+    return ProfileStatus::Ok;
+}
+
+void persist_applied_one(uint8_t address, int port, const char* kind,
+                         uint8_t mode, uint8_t speed, uint8_t dir, uint8_t r, uint8_t g, uint8_t b) {
+    if (!kind || !kind[0]) return;
+    Profile p;
+    load_profile_status(p, nullptr); // missing -> empty profile; corrupt -> start fresh from this apply
+    bool found = false;
+    for (auto& m : p.modules) {
+        if (m.address == address) {
+            m.port = port; m.kind = kind; m.mode = mode; m.speed = speed; m.direction = dir;
+            m.r = r; m.g = g; m.b = b; found = true; break;
+        }
+    }
+    if (!found) {
+        ModuleProfile m;
+        m.address = address; m.port = port; m.kind = kind; m.mode = mode; m.speed = speed;
+        m.direction = dir; m.r = r; m.g = g; m.b = b;
+        p.modules.push_back(m);
+    }
+    if (p.version <= 0) p.version = 1;
+    save_profile(p);
 }

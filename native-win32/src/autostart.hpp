@@ -9,6 +9,9 @@ bool autostart_can_cache(AutostartInstallState s);
 // Tests and WM_ENDSESSION must not spawn schtasks.exe / cmd.exe.
 void autostart_set_allow_child_processes(bool allow);
 bool autostart_allow_child_processes();
+// /TR payload: "\"exe\" restore" — silent profile restore at logon, not unconditional off.
+std::wstring autostart_tr(const std::wstring& exe);
+std::wstring autostart_create_cmd(const std::wstring& exe);
 
 struct Autostart {
     static constexpr const wchar_t* kTask = L"XtreemRgbToggle-Off";

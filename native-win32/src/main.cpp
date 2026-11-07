@@ -63,15 +63,17 @@ static int cmd_once(const std::wstring& dir, bool off) {
     return 0;
 }
 static int cmd_restore(const std::wstring& dir) {
+    Profile p;
+    auto pst = load_profile_status(p);
+    auto act = profile_restore_action(pst, p.modules.size());
+    if (act != RestoreAction::Apply) {
+        std::wcout << restore_skip_message(act) << L"\n";
+        return act == RestoreAction::SkipCorrupt ? 5 : 0;
+    }
     XtreemHardware hw(dir);
     if (!hw.last_probe.can_use_hardware()) return fail_driver(hw.last_probe);
-    Profile p;
-    if (!load_profile(p) || p.modules.empty()) {
-        auto st = load_state();
-        if (st == LightState::Unknown) { std::wcout << L"No profile.json or state.txt to restore.\n"; return 5; }
-        return cmd_once(dir, st == LightState::Off);
-    }
     auto d = hw.detect();
+    if (d.empty()) { std::wcout << L"No XTREEM modules found.\n"; return 3; }
     hw.restore_profile(d, p);
     std::wcout << L"Restored " << p.modules.size() << L" module profile(s), then exit.\n";
     return 0;
@@ -144,7 +146,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int) {
             L"  tray               start in tray; Open / Exit on the icon. Minimize hides to tray. Close quits.\n"
             L"  off|on|toggle|restore   hardware then exit (no new console; attach parent if launched from cmd)\n"
             L"  detect|status|debug|help   print to a console (allocates one only if no parent)\n"
-            L"  install-autostart | uninstall-autostart\n"
+            L"  install-autostart | uninstall-autostart  (logon task runs silent restore)\n"
             L"PawnIO kernel driver: https://pawnio.eu (not bundled, not auto-installed).\n"
             L"GUI: Effect list includes Off (LEDs black, not Static) and T-Force Default.\n";
         return tok == L"help" || tok == L"-h" || tok == L"--help" ? 0 : 2;

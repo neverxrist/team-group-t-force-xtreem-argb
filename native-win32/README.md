@@ -33,9 +33,10 @@ No automatic installer. Bundled DLL/bin are never treated as an installed kernel
 Extract the portable ZIP. Right-click `XtreemRgbToggle.exe` → Run as administrator. The exe is `/SUBSYSTEM:WINDOWS`. Double-click / `gui` / `tray` / `restore` / `off` / `on` / `toggle` do **not** AllocConsole (no extra console titled with the exe path). From cmd.exe, those commands AttachConsole to the parent so you still see output. `detect` / `status` / `debug` / `help` allocate a console only if there is no parent.
 
 - **Close** and tray **Exit** quit (icon removed, worker joined). **Minimize** hides to tray; tray **Open** (or double-click) restores. `tray` starts hidden with an icon.
-- Autostart still runs `off` at logon (silent, no new console). Child process is `schtasks.exe` with `CREATE_NO_WINDOW`; this app does not launch `cmd.exe`.
+- Autostart (if you click Install) runs silent `restore` at logon, not unconditional off. Child process is `schtasks.exe` with `CREATE_NO_WINDOW`; this app does not launch `cmd.exe`. This build does not create or change the task unless you click Install / run `install-autostart`.
+- Applied Off / T-Force / effect / static color are saved per module after a successful apply (not live preview). GUI launch restores that profile once after a successful driver check + detect. Missing or unreadable `profile.json` leaves lighting unchanged and says so; it does not fall back to off.
 
-CLI: `off` `on` `toggle` `detect` `status` `debug` `restore` `install-autostart` `uninstall-autostart` `tray`. `restore` applies `%LocalAppData%\XtreemRgbToggle\profile.json` then exits (`state.txt` off/on if no JSON). `XTREEM_DIAG=1` or `--diag` writes `%LocalAppData%\XtreemRgbToggle\diagnostic.log`. `--diag` alone still opens the GUI.
+CLI: `off` `on` `toggle` `detect` `status` `debug` `restore` `install-autostart` `uninstall-autostart` `tray`. `restore` applies `%LocalAppData%\XtreemRgbToggle\profile.json` then exits. Missing/empty profile: nothing applied (exit 0). Unreadable profile: nothing applied (exit 5), not a missing-driver error. `XTREEM_DIAG=1` or `--diag` writes `%LocalAppData%\XtreemRgbToggle\diagnostic.log`. `--diag` alone still opens the GUI.
 
 ## Build (Windows, MSVC)
 
@@ -46,7 +47,7 @@ native-win32\build\out\xtreem_logic_tests.exe
 native-win32\build\out\xtreem_gui_smoke.exe
 ```
 
-`xtreem_gui_smoke` runs the real main window against an in-process `FakeHw` (no PawnIO/SMBus): probe/detect, Off vs T-Force vs effect dispatch, module select, color, live-preview coalescing, profile persist, driver-missing Retry, minimize/tray Open, close while a job is pending.
+`xtreem_gui_smoke` runs the real main window against an in-process `FakeHw` (no PawnIO/SMBus): probe/detect, Off vs T-Force vs effect dispatch, module select, color, live-preview coalescing, profile persist after successful apply (preview not saved), missing/corrupt profile, restore-once, 0/1/N module radio containment in the Module selection group, driver-missing Retry, minimize/tray Open, close while a job is pending. Logic tests also cover layout math at 96/120/144/192 DPI and the autostart `/TR ... restore` string. Neither is a hardware run.
 
 Visual Studio generator also works if vswhere finds it (`-G "Visual Studio 17 2022" -A x64`); binaries still go to `native-win32/build/out/`.
 

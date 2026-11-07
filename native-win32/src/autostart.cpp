@@ -76,15 +76,23 @@ void Autostart::delete_task(const wchar_t* name) {
     run_hidden(cmd, 3000, nullptr);
 }
 
+std::wstring autostart_tr(const std::wstring& exe) {
+    return L"\"" + exe + L"\" restore";
+}
+std::wstring autostart_create_cmd(const std::wstring& exe) {
+    std::wstring cmd = L"schtasks.exe /Create /F /TN \"";
+    cmd += Autostart::kTask;
+    cmd += L"\" /TR \"\\\"";
+    cmd += exe;
+    cmd += L"\\\" restore\" /SC ONLOGON /RL HIGHEST /DELAY 0000:00";
+    return cmd;
+}
+
 void Autostart::install(const std::wstring& exe) {
     diag::Timer t("Autostart.install");
     if (query_task(kLegacy) == TaskQueryResult::Present)
         delete_task(kLegacy);
-    std::wstring cmd = L"schtasks.exe /Create /F /TN \"";
-    cmd += kTask;
-    cmd += L"\" /TR \"\\\"";
-    cmd += exe;
-    cmd += L"\\\" off\" /SC ONLOGON /RL HIGHEST /DELAY 0000:00";
+    std::wstring cmd = autostart_create_cmd(exe);
     DWORD exit_code = 1;
     if (run_hidden(cmd, 15000, &exit_code) != 0 || exit_code != 0)
         throw std::runtime_error("Task creation failed");

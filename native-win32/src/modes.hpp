@@ -81,6 +81,16 @@ inline uint8_t speed_from_slider(int v) {
     default: return SPEED_NORMAL;
     }
 }
+inline int slider_from_speed(uint8_t s) {
+    switch (s) {
+    case SPEED_FASTEST: return 0;
+    case SPEED_FAST: return 1;
+    case SPEED_NORMAL: return 2;
+    case SPEED_SLOW: return 3;
+    case SPEED_SLOWEST: return 4;
+    default: return 2;
+    }
+}
 inline const char* speed_label(int v) {
     switch (v) {
     case 0: return "Fastest";
