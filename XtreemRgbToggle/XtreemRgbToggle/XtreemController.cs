@@ -56,20 +56,24 @@ internal sealed class XtreemService
 
     public List<XtreemDevice> DetectAndRemap(bool verbose = true)
     {
+        using var timer = DiagnosticTimer.Start("DetectAndRemap");
         var found = new List<XtreemDevice>();
 
         foreach (int port in new[] { 0, 1 })
         {
+            using var portTimer = DiagnosticTimer.Start($"Scan SMBus port {port}");
             if (verbose) Console.WriteLine($"Scanning AMD SMBus port {port}...");
 
             AmdSmBus? bus = null;
             try
             {
+                using var openTimer = DiagnosticTimer.Start($"Open SMBus port {port}");
                 bus = AmdSmBus.Open(_modulePath, port);
             }
             catch (Exception ex)
             {
                 if (verbose) Console.WriteLine($"  port {port}: failed to open ({ex.Message})");
+                DiagnosticTimer.Log($"Port {port} open failed: {ex.Message}");
                 continue;
             }
 
@@ -88,6 +92,7 @@ internal sealed class XtreemService
             }
         }
 
+        DiagnosticTimer.Log($"Detection complete: {found.Count} modules found");
         return found
             .GroupBy(d => d.Address7)
             .Select(g => g.First())
@@ -196,6 +201,7 @@ internal sealed class XtreemService
     /// <summary>Off: mode Off + Direct black (Direct=1). VERIFIED working.</summary>
     public void ApplyOff(IReadOnlyList<XtreemDevice> devices, bool verbose = true)
     {
+        using var timer = DiagnosticTimer.Start($"ApplyOff ({devices.Count} devices)");
         ApplyEffect(devices, XtreemModes.OFF, XtreemModes.SPEED_NORMAL, XtreemModes.DIRECTION_FORWARD, verbose);
         SetDirectBlack(devices, verbose);
     }
@@ -203,12 +209,15 @@ internal sealed class XtreemService
     /// <summary>On: T-Force Default (0x19) + Direct=0. Legacy shortcut.</summary>
     public void ApplyOn(IReadOnlyList<XtreemDevice> devices, bool verbose = true)
     {
+        using var timer = DiagnosticTimer.Start($"ApplyOn ({devices.Count} devices)");
         ApplyEffect(devices, XtreemModes.TFORCE_XTREEM_DEFAULT, XtreemModes.SPEED_NORMAL, XtreemModes.DIRECTION_FORWARD, verbose);
     }
 
     /// <summary>Apply effect mode with speed and direction. Source-confirmed from OpenRGB.</summary>
     public void ApplyEffect(IReadOnlyList<XtreemDevice> devices, byte mode, byte speed, byte direction, bool verbose = true)
     {
+        using var timer = DiagnosticTimer.Start($"ApplyEffect mode=0x{mode:X2} ({devices.Count} devices)");
+        
         if (devices.Count == 0)
             throw new InvalidOperationException("No XTREEM modules detected.");
 
@@ -279,6 +288,8 @@ internal sealed class XtreemService
     /// </summary>
     public void ApplyStaticColor(IReadOnlyList<XtreemDevice> devices, byte r, byte g, byte b, bool verbose = true)
     {
+        using var timer = DiagnosticTimer.Start($"ApplyStaticColor RGB({r},{g},{b}) to {devices.Count} devices");
+        
         if (devices.Count == 0)
             throw new InvalidOperationException("No XTREEM modules detected.");
 
