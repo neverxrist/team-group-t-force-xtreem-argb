@@ -1,4 +1,5 @@
 #include "xtreem.hpp"
+#include "restore.hpp"
 #include "diag.hpp"
 #include <windows.h>
 #include <map>
@@ -55,20 +56,29 @@ static std::vector<uint8_t> candidate_addrs() {
     return a;
 }
 
-std::vector<XtreemDevice> detect_and_remap(const BusFactory& open_port) {
+std::vector<XtreemDevice> detect_and_remap(const BusFactory& open_port, DetectTrace* trace) {
     diag::Timer t("detect_and_remap");
     std::vector<XtreemDevice> found;
+    if (trace) *trace = {};
     for (int port : {0, 1}) {
         std::unique_ptr<ISmBus> bus;
         try { bus = open_port(port); }
-        catch (...) { continue; }
-        if (!bus) continue;
+        catch (...) {
+            if (trace) trace->ports_failed++;
+            continue;
+        }
+        if (!bus) {
+            if (trace) trace->ports_failed++;
+            continue;
+        }
+        if (trace) trace->ports_opened++;
         remap_modules(*bus);
         for (auto addr : candidate_addrs()) {
             if (test_for_xtreem(*bus, addr))
                 found.push_back(XtreemDevice{addr, port});
         }
     }
+    if (trace) trace->hits = (int)found.size();
     std::vector<XtreemDevice> uniq;
     for (auto& d : found) {
         bool seen = false;
@@ -156,9 +166,11 @@ std::vector<XtreemDevice> XtreemHardware::detect() {
     auto dir = dir_;
     auto bin = bin_path_;
     auto* api = &api_;
-    return detect_and_remap([&](int port) -> std::unique_ptr<ISmBus> {
+    last_detect_trace = {};
+    auto found = detect_and_remap([&](int port) -> std::unique_ptr<ISmBus> {
         return std::make_unique<AmdSmBus>(AmdSmBus::open(*api, bin, port));
-    });
+    }, &last_detect_trace);
+    return found;
 }
 
 void XtreemHardware::apply_off(const std::vector<XtreemDevice>& devs) {
@@ -179,11 +191,10 @@ void XtreemHardware::apply_color(const std::vector<XtreemDevice>& devs, uint8_t 
     foreach_port(devs, [&](ISmBus& bus, const auto& grp) { apply_static_color(bus, grp, r, g, b); });
 }
 void XtreemHardware::restore_profile(const std::vector<XtreemDevice>& found, const Profile& p) {
-    for (auto& m : p.modules) {
-        std::vector<XtreemDevice> one;
-        for (auto& d : found)
-            if (d.address7 == m.address) one.push_back(d);
-        if (one.empty()) continue;
+    auto plan = match_profile_to_found(p, found);
+    for (auto& x : plan.matched) {
+        std::vector<XtreemDevice> one{ x.device };
+        const auto& m = x.saved;
         if (m.kind == "off") apply_off(one);
         else if (m.kind == "static") apply_color(one, m.r, m.g, m.b);
         else if (m.kind == "effect") apply_effect_all(one, m.mode, m.speed, m.direction);

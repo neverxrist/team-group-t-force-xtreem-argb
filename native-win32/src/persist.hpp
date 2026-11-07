@@ -46,6 +46,10 @@ inline RestoreAction profile_restore_action(ProfileStatus st, size_t nmods) {
     if (nmods == 0) return RestoreAction::SkipEmpty;
     return RestoreAction::Apply;
 }
+std::wstring restore_log_path();
+// Always-on restore session log (not gated on XTREEM_DIAG). No paths/secrets.
+void restore_event(const char* msg);
+
 inline const wchar_t* restore_skip_message(RestoreAction a) {
     switch (a) {
     case RestoreAction::SkipCorrupt: return L"Saved profile unreadable; nothing restored.";

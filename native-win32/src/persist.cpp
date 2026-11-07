@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 
 std::wstring appdata_dir() {
     std::error_code ec;
@@ -31,6 +32,30 @@ std::wstring state_path(const wchar_t* override_path) {
 std::wstring profile_path(const wchar_t* override_path) {
     if (override_path && override_path[0]) return override_path;
     return (std::filesystem::path(appdata_dir()) / L"profile.json").wstring();
+}
+
+std::wstring restore_log_path() {
+    auto dir = appdata_dir();
+    if (dir.empty()) return L"";
+    return (std::filesystem::path(dir) / L"restore.log").wstring();
+}
+
+void restore_event(const char* msg) {
+    if (!msg) return;
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    char line[512];
+    snprintf(line, sizeof(line), "%04u-%02u-%02u %02u:%02u:%02u restore %s\n",
+             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, msg);
+    OutputDebugStringA(line);
+    auto path = restore_log_path();
+    if (path.empty()) return;
+    std::error_code ec;
+    auto sz = std::filesystem::file_size(path, ec);
+    std::ios::openmode mode = std::ios::app;
+    if (!ec && sz > 48 * 1024) mode = std::ios::trunc;
+    std::ofstream f(path, std::ios::binary | mode);
+    if (f) f << line;
 }
 
 static std::string read_all(const std::wstring& path) {

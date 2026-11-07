@@ -2,8 +2,10 @@
 #include "cli.hpp"
 #include "xtreem.hpp"
 #include "persist.hpp"
+#include "restore.hpp"
 #include "autostart.hpp"
 #include "diag.hpp"
+#include <cstdio>
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
@@ -62,21 +64,96 @@ static int cmd_once(const std::wstring& dir, bool off) {
     std::wcout << hw.dump(d);
     return 0;
 }
+static void restore_log_addrs(const char* tag, const std::vector<uint8_t>& addrs) {
+    char buf[256];
+    int n = snprintf(buf, sizeof(buf), "%s n=%d", tag, (int)addrs.size());
+    for (auto a : addrs) {
+        if (n < 0 || n >= (int)sizeof(buf) - 8) break;
+        n += snprintf(buf + n, sizeof(buf) - (size_t)n, " 0x%02X", a);
+    }
+    restore_event(buf);
+}
+
 static int cmd_restore(const std::wstring& dir) {
+    restore_event("begin");
     Profile p;
     auto pst = load_profile_status(p);
     auto act = profile_restore_action(pst, p.modules.size());
+    {
+        char b[80];
+        snprintf(b, sizeof(b), "profile status=%d modules=%d", (int)pst, (int)p.modules.size());
+        restore_event(b);
+    }
+    std::vector<uint8_t> saved;
+    for (auto& m : p.modules) saved.push_back(m.address);
+    restore_log_addrs("profile_addrs", saved);
     if (act != RestoreAction::Apply) {
+        restore_event(act == RestoreAction::SkipCorrupt ? "exit=5 corrupt" : "exit=0 skip");
         std::wcout << restore_skip_message(act) << L"\n";
-        return act == RestoreAction::SkipCorrupt ? 5 : 0;
+        return act == RestoreAction::SkipCorrupt ? kExitCorruptProfile : kExitOk;
     }
     XtreemHardware hw(dir);
-    if (!hw.last_probe.can_use_hardware()) return fail_driver(hw.last_probe);
-    auto d = hw.detect();
-    if (d.empty()) { std::wcout << L"No XTREEM modules found.\n"; return 3; }
+    if (!hw.last_probe.can_use_hardware()) {
+        char b[96];
+        snprintf(b, sizeof(b), "exit=4 driver status=%d", (int)hw.last_probe.status);
+        restore_event(b);
+        return fail_driver(hw.last_probe);
+    }
+    restore_event("probe ready; detect (retries are detect-only, protocol sleeps unchanged)");
+    int attempts_used = 0;
+    bool detect_threw = false;
+    auto d = detect_with_retry([&]() -> std::vector<XtreemDevice> {
+        try {
+            return hw.detect();
+        } catch (const std::exception& ex) {
+            detect_threw = true;
+            char b[192];
+            snprintf(b, sizeof(b), "detect_throw %.120s", ex.what());
+            restore_event(b);
+            return {};
+        }
+    }, kRestoreDetectAttempts, kRestoreDetectDelayMs, &attempts_used);
+    {
+        char b[128];
+        snprintf(b, sizeof(b), "detect attempts=%d found=%d ports_opened=%d ports_failed=%d hits=%d",
+                 attempts_used, (int)d.size(), hw.last_detect_trace.ports_opened,
+                 hw.last_detect_trace.ports_failed, hw.last_detect_trace.hits);
+        restore_event(b);
+    }
+    std::vector<uint8_t> found_a;
+    for (auto& x : d) found_a.push_back(x.address7);
+    restore_log_addrs("found_addrs", found_a);
+    auto plan = match_profile_to_found(p, d);
+    restore_log_addrs("matched_addrs", [&] {
+        std::vector<uint8_t> a;
+        for (auto& m : plan.matched) a.push_back(m.device.address7);
+        return a;
+    }());
+    restore_log_addrs("stale_profile_addrs", plan.stale_profile_addrs);
+    int rc = restore_result_exit(act, true, detect_threw, d, plan);
+    if (rc == kExitNoModules) {
+        restore_event("exit=3 no modules after Ready probe (this exe code, not Win32 path-not-found)");
+        std::wcout << L"No XTREEM modules found.\n";
+        return rc;
+    }
+    if (rc == kExitNoProfileMatch) {
+        restore_event("exit=6 detected modules none match saved addresses; nothing applied");
+        std::wcout << L"Detected modules do not match saved profile addresses; nothing applied.\n";
+        return rc;
+    }
+    if (rc == kExitError) {
+        restore_event("exit=1 detect threw and found none");
+        return rc;
+    }
     hw.restore_profile(d, p);
-    std::wcout << L"Restored " << p.modules.size() << L" module profile(s), then exit.\n";
-    return 0;
+    {
+        char b[80];
+        snprintf(b, sizeof(b), "exit=0 applied=%d stale=%d", (int)plan.matched.size(),
+                 (int)plan.stale_profile_addrs.size());
+        restore_event(b);
+    }
+    std::wcout << L"Restored " << plan.matched.size() << L" matching module(s), then exit.\n";
+    return kExitOk;
 }
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int) {
@@ -147,6 +224,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int) {
             L"  off|on|toggle|restore   hardware then exit (no new console; attach parent if launched from cmd)\n"
             L"  detect|status|debug|help   print to a console (allocates one only if no parent)\n"
             L"  install-autostart | uninstall-autostart  (logon task runs silent restore)\n"
+            L"restore.log: %%LocalAppData%%\\XtreemRgbToggle\\restore.log (exit 3 = detect found no modules)\n"
             L"PawnIO kernel driver: https://pawnio.eu (not bundled, not auto-installed).\n"
             L"GUI: Effect list includes Off (LEDs black, not Static) and T-Force Default.\n";
         return tok == L"help" || tok == L"-h" || tok == L"--help" ? 0 : 2;

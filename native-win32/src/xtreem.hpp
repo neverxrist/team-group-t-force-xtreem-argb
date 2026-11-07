@@ -39,13 +39,19 @@ void apply_static_color(ISmBus& bus, const std::vector<XtreemDevice>& on_this_po
                         uint8_t r, uint8_t g, uint8_t b);
 
 using BusFactory = std::function<std::unique_ptr<ISmBus>(int port)>;
-std::vector<XtreemDevice> detect_and_remap(const BusFactory& open_port);
+struct DetectTrace {
+    int ports_opened = 0;
+    int ports_failed = 0;
+    int hits = 0;
+};
+std::vector<XtreemDevice> detect_and_remap(const BusFactory& open_port, DetectTrace* trace = nullptr);
 
 class XtreemHardware {
 public:
     explicit XtreemHardware(std::wstring exe_dir);
     ~XtreemHardware();
     PawnioProbe last_probe;
+    DetectTrace last_detect_trace;
     void refresh_probe();
     std::vector<XtreemDevice> detect();
     void apply_off(const std::vector<XtreemDevice>& devs);

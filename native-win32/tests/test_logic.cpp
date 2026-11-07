@@ -6,6 +6,7 @@
 #include "pawnio.hpp"
 #include "cli.hpp"
 #include "hw_worker.hpp"
+#include "restore.hpp"
 #include "layout.hpp"
 #include <fstream>
 #include <cstring>
@@ -254,6 +255,84 @@ int main() {
         CHECK(f.color_n >= 1);
         CHECK(!f.used_real_hardware);
         SetEnvironmentVariableW(L"XTREEM_STATE_DIR", nullptr);
+    }
+
+    CHECK(kExitNoModules == 3);
+    CHECK(kExitNoProfileMatch == 6);
+    {
+        Profile hist;
+        CHECK(profile_from_json(
+            "{\"version\":1,\"modules\":["
+            "{\"address\":57,\"port\":0,\"kind\":\"effect\",\"mode\":0,\"speed\":2,\"direction\":0,\"r\":0,\"g\":0,\"b\":0},"
+            "{\"address\":58,\"port\":0,\"kind\":\"effect\",\"mode\":0,\"speed\":2,\"direction\":0,\"r\":0,\"g\":0,\"b\":0},"
+            "{\"address\":112,\"port\":0,\"kind\":\"off\",\"mode\":0,\"speed\":2,\"direction\":0,\"r\":0,\"g\":0,\"b\":0},"
+            "{\"address\":113,\"port\":0,\"kind\":\"off\",\"mode\":0,\"speed\":2,\"direction\":0,\"r\":0,\"g\":0,\"b\":0}"
+            "]}", hist));
+        CHECK(hist.modules.size() == 4);
+        CHECK(hist.modules[0].address == 0x39 && hist.modules[3].address == 0x71);
+        std::vector<XtreemDevice> live{ {0x71, 0} };
+        auto plan = match_profile_to_found(hist, live);
+        CHECK(plan.matched.size() == 1);
+        CHECK(plan.matched[0].device.address7 == 0x71);
+        CHECK(plan.matched[0].saved.kind == "off");
+        CHECK(plan.stale_profile_addrs.size() == 3);
+        CHECK(plan.unmatched_found_addrs.empty());
+        CHECK(restore_result_exit(RestoreAction::Apply, true, false, live, plan) == kExitOk);
+        std::vector<XtreemDevice> none;
+        auto empty_plan = match_profile_to_found(hist, none);
+        CHECK(empty_plan.matched.empty());
+        CHECK(restore_result_exit(RestoreAction::Apply, true, false, none, empty_plan) == kExitNoModules);
+        std::vector<XtreemDevice> other{ {0x72, 0} };
+        auto nomatch = match_profile_to_found(hist, other);
+        CHECK(nomatch.matched.empty());
+        CHECK(nomatch.unmatched_found_addrs.size() == 1 && nomatch.unmatched_found_addrs[0] == 0x72);
+        CHECK(restore_result_exit(RestoreAction::Apply, true, false, other, nomatch) == kExitNoProfileMatch);
+        CHECK(restore_result_exit(RestoreAction::Apply, false, false, none, empty_plan) == kExitDriver);
+        CHECK(restore_result_exit(RestoreAction::Apply, true, true, none, empty_plan) == kExitError);
+        CHECK(restore_result_exit(RestoreAction::SkipCorrupt, true, false, live, plan) == kExitCorruptProfile);
+        int used = 0, n = 0;
+        auto retried = detect_with_retry([&] {
+            n++;
+            if (n < 3) return std::vector<XtreemDevice>{};
+            return std::vector<XtreemDevice>{ {0x71, 0} };
+        }, 8, 0, &used);
+        CHECK(used == 3);
+        CHECK(retried.size() == 1 && retried[0].address7 == 0x71);
+        int used2 = 0;
+        auto still_empty = detect_with_retry([&] { return std::vector<XtreemDevice>{}; }, 3, 0, &used2);
+        CHECK(used2 == 3);
+        CHECK(still_empty.empty());
+        CHECK(restore_result_exit(RestoreAction::Apply, true, false, still_empty, empty_plan) == kExitNoModules);
+    }
+    {
+        auto tdir = tmp / "restore_log";
+        std::filesystem::create_directories(tdir);
+        SetEnvironmentVariableW(L"XTREEM_STATE_DIR", tdir.wstring().c_str());
+        restore_event("begin");
+        restore_event("exit=3 no modules after Ready probe (this exe code, not Win32 path-not-found)");
+        auto lp = restore_log_path();
+        auto s = [&] {
+            std::ifstream f(lp);
+            return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        }();
+        CHECK(s.find("restore begin") != std::string::npos);
+        CHECK(s.find("exit=3") != std::string::npos);
+        CHECK(s.find("qdona") == std::string::npos);
+        SetEnvironmentVariableW(L"XTREEM_STATE_DIR", nullptr);
+    }
+    {
+        DetectTrace tr;
+        auto found = detect_and_remap([&](int port) -> std::unique_ptr<ISmBus> {
+            if (port != 0) throw std::runtime_error("no port 1");
+            auto f = std::make_unique<FakeBus>();
+            f->present[0x71] = true;
+            f->xtreem[0x71] = true;
+            return f;
+        }, &tr);
+        CHECK(found.size() == 1);
+        CHECK(tr.ports_opened == 1);
+        CHECK(tr.ports_failed == 1);
+        CHECK(tr.hits >= 1);
     }
 
     if (g_fail) { std::cerr << g_fail << " failed\n"; return 1; }
