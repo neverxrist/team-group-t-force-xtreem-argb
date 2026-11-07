@@ -11,104 +11,58 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
-        
-    - name: Setup Inno Setup
+
+    - name: Restore and test
       run: |
-        choco install innosetup -y
-      shell: pwsh
-      
-    - name: Restore and Build
-      run: |
-        dotnet restore XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj
-        dotnet publish XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj -c Release -r win-x64 --self-contained false -o publish-win-x64
-      
+        dotnet restore XtreemRgbToggle.sln
+        dotnet test XtreemRgbToggle/XtreemRgbToggle.Tests/XtreemRgbToggle.Tests.csproj -c Release --verbosity normal
+
+    - name: Publish self-contained win-x64
+      run: >
+        dotnet publish XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj
+        -c Release -r win-x64 --self-contained true
+        -p:PublishSingleFile=false -p:PublishTrimmed=false
+        -o publish-selfcontained
+
     - name: Package portable ZIP
-      run: |
-        Copy-Item native/PawnIOLib.dll publish-win-x64/
-        Copy-Item native/SmbusPIIX4.bin publish-win-x64/
-        Copy-Item native/COPYING.PawnIO.Modules publish-win-x64/
-        Copy-Item README.md publish-win-x64/README.txt
-        Copy-Item LICENSE publish-win-x64/LICENSE.txt
-        Compress-Archive -Path publish-win-x64/* -DestinationPath XtreemRgbToggle-portable.zip
       shell: pwsh
-      
-    - name: Build installer
       run: |
-        # Copy publish output to installer expected location
-        New-Item -ItemType Directory -Force -Path installer/build-output
-        Copy-Item -Recurse -Force publish-win-x64/* installer/build-output/
-        
-        # Copy LICENSE for installer
-        Copy-Item LICENSE LICENSE.txt
-        
-        # Compile installer
-        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/XtreemRgbToggle-Setup.iss
-      shell: pwsh
-      continue-on-error: true
-      
+        Copy-Item native/PawnIOLib.dll publish-selfcontained/ -Force
+        Copy-Item native/SmbusPIIX4.bin publish-selfcontained/ -Force
+        Copy-Item native/COPYING.PawnIO.Modules publish-selfcontained/ -Force
+        Copy-Item README.md publish-selfcontained/README.txt -Force
+        Copy-Item LICENSE publish-selfcontained/LICENSE.txt -Force
+        Compress-Archive -Path publish-selfcontained/* -DestinationPath XtreemRgbToggle-portable-win-x64-selfcontained.zip
+
     - name: Calculate SHA256
-      run: |
-        $portable_hash = (Get-FileHash XtreemRgbToggle-portable.zip -Algorithm SHA256).Hash
-        "$portable_hash  XtreemRgbToggle-portable.zip" | Out-File -FilePath SHA256SUMS.txt -Encoding utf8
-        
-        if (Test-Path "installer-output/*.exe") {
-          $installer = Get-ChildItem installer-output/*.exe | Select-Object -First 1
-          $installer_hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
-          "$installer_hash  $($installer.Name)" | Out-File -FilePath SHA256SUMS.txt -Append -Encoding utf8
-          Write-Host "Installer SHA256: $installer_hash"
-        }
-        
-        Write-Host "Portable SHA256: $portable_hash"
-        Get-Content SHA256SUMS.txt
       shell: pwsh
-      
+      run: |
+        $hash = (Get-FileHash XtreemRgbToggle-portable-win-x64-selfcontained.zip -Algorithm SHA256).Hash
+        "$hash  XtreemRgbToggle-portable-win-x64-selfcontained.zip" | Out-File -FilePath SHA256SUMS.txt -Encoding ascii
+        Get-Content SHA256SUMS.txt
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          XtreemRgbToggle-portable.zip
-          installer-output/*.exe
+          XtreemRgbToggle-portable-win-x64-selfcontained.zip
           SHA256SUMS.txt
+        prerelease: true
         body: |
-          ## XtreemRgbToggle ${{ github.ref_name }}
-          
-          RGB control for TEAMGROUP T-Force XTREEM ARGB DDR4 on AMD Ryzen platforms.
-          
-          ### Downloads
-          
-          - **XtreemRgbToggle-portable.zip** - Portable version (extract and run)
-          - **XtreemRgbToggle-Setup.exe** - Installer (downloads .NET runtime if missing)
-          - **SHA256SUMS.txt** - Checksums for verification
-          
-          ### Requirements
-          
-          - Windows 10/11 x64
-          - [.NET 8.0 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
-          - Administrator privileges
-          - TEAMGROUP T-Force XTREEM ARGB DDR4 on AMD Ryzen
-          
-          ### Verification
-          
-          ```powershell
-          # Verify checksum
-          $expected = (Get-Content SHA256SUMS.txt | Select-String "portable").ToString().Split()[0]
-          $actual = (Get-FileHash XtreemRgbToggle-portable.zip -Algorithm SHA256).Hash
-          if ($expected -eq $actual) { Write-Host "✓ Checksum verified" } else { Write-Host "✗ Checksum mismatch" }
-          ```
-          
-          ### Changes
-          
-          See commit history for details.
-        draft: false
-        prerelease: false
+          Self-contained win-x64 portable ZIP (bundles .NET 8 Desktop runtime as a folder).
+
+          PawnIO **kernel driver** is still required from https://pawnio.eu.
+          Bundled PawnIOLib.dll and SmbusPIIX4.bin do not install that driver.
+
+          No installer asset. Hardware/UI timings are unmeasured in CI.
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
