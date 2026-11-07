@@ -2,6 +2,8 @@
 
 Lightweight Windows utility for controlling TEAMGROUP T-Force XTREEM ARGB DDR4 RAM RGB lighting on AMD Ryzen platforms.
 
+A native Win32 C++ portable build lives in [`native-win32/`](native-win32/README.md) (no .NET). The C# WinForms tree remains. The PawnIO **kernel driver** is still installed only from [pawnio.eu](https://pawnio.eu); bundled DLL/bin are not that driver.
+
 ## Features
 
 - **26 Effect Modes** - All modes from OpenRGB source (Static, Rainbow, Breathing, Chase, etc.)

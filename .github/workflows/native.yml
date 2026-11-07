@@ -1,0 +1,55 @@
+name: Native Win32
+
+on:
+  push:
+    branches: [ main, cursor/native-win32-rewrite-a901 ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Configure
+      run: cmake -S native-win32 -B native-win32/build -G "Visual Studio 17 2022" -A x64
+    - name: Build
+      run: cmake --build native-win32/build --config Release
+    - name: Logic tests (no hardware)
+      run: native-win32\build\Release\xtreem_logic_tests.exe
+    - name: GUI smoke (no PawnIO / no SMBus)
+      run: native-win32\build\Release\xtreem_gui_smoke.exe
+    - name: Package portable ZIP
+      shell: pwsh
+      run: |
+        $out = "native-package"
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        Copy-Item native-win32/build/Release/XtreemRgbToggle.exe $out/
+        Copy-Item native/PawnIOLib.dll $out/
+        Copy-Item native/SmbusPIIX4.bin $out/
+        Copy-Item native/COPYING.PawnIO.Modules $out/
+        Copy-Item LICENSE $out/LICENSE.txt
+        Copy-Item native-win32/README.md $out/README.txt
+        $dll = Get-Item native/PawnIOLib.dll
+        $bin = Get-Item native/SmbusPIIX4.bin
+        if ($dll.Length -ne 4096) { throw "PawnIOLib.dll size" }
+        if ($bin.Length -ne 42404) { throw "SmbusPIIX4.bin size" }
+        Compress-Archive -Path $out/* -DestinationPath XtreemRgbToggle-native-win-x64.zip -Force
+        $hash = (Get-FileHash XtreemRgbToggle-native-win-x64.zip -Algorithm SHA256).Hash
+        $commit = git rev-parse HEAD
+        @(
+          "SOURCE_COMMIT $commit"
+          "$hash  XtreemRgbToggle-native-win-x64.zip"
+        ) | Out-File SHA256SUMS-native.txt -Encoding ascii
+        Get-Content SHA256SUMS-native.txt
+        Write-Host "ZIP bytes: $((Get-Item XtreemRgbToggle-native-win-x64.zip).Length)"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: XtreemRgbToggle-native
+        path: |
+          XtreemRgbToggle-native-win-x64.zip
+          SHA256SUMS-native.txt
+        retention-days: 30
