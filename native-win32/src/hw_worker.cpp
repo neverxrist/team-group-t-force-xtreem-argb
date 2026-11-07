@@ -48,8 +48,8 @@ void HwWorker::run_job(HwJob job) {
             if (on_done) on_done(job.kind, hw_->last_probe.can_use_hardware(), hw_->last_probe.message, {}, hw_->last_probe);
             return;
         }
-        if (!hw_->last_probe.can_use_hardware() && job.kind != HwKind::Detect) {
-            hw_->last_probe = probe_pawnio(dir_);
+        if (!hw_->last_probe.can_use_hardware()) {
+            hw_->refresh_probe();
             if (!hw_->last_probe.can_use_hardware()) {
                 if (on_done) on_done(job.kind, false, hw_->last_probe.message, {}, hw_->last_probe);
                 return;

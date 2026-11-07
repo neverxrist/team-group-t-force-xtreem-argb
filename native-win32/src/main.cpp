@@ -27,10 +27,8 @@ static void ensure_console() {
     }
 }
 static int fail_driver(const PawnioProbe& p) {
-    std::wcerr << p.message << L"\n";
-    std::wcerr << L"Install the kernel driver yourself from " << kPawnioOfficialPage
-               << L" (this program does not download it).\n"
-               << L"PawnIOLib.dll and SmbusPIIX4.bin are not the driver.\n";
+    std::wcerr << p.message << L"\n" << pawnio_next_step(p.status) << L"\n"
+               << L"PawnIOLib.dll and SmbusPIIX4.bin are user-mode files, not the kernel driver.\n";
     return 4;
 }
 
@@ -108,8 +106,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int) {
             std::wcout << L"Autostart: " << (as == AutostartInstallState::Installed ? L"Installed" :
                 as == AutostartInstallState::NotInstalled ? L"NotInstalled" : L"Unknown") << L"\n";
             auto pr = probe_pawnio(dir);
-            std::wcout << pr.message << L"\n";
-            return 0;
+            std::wcout << pr.message << L"\n" << pawnio_next_step(pr.status) << L"\n";
+            return pr.can_use_hardware() ? 0 : 4;
         }
         if (tok == L"debug" || tok == L"dump") {
             XtreemHardware hw(dir);
@@ -134,7 +132,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int) {
             L"  (no args)  GUI\n"
             L"  off|on|toggle|detect|status|debug|restore\n"
             L"  install-autostart | uninstall-autostart | tray\n"
-            L"PawnIO kernel driver: https://pawnio.eu (not bundled, not auto-installed)\n";
+            L"PawnIO kernel driver: https://pawnio.eu (not bundled, not auto-installed).\n"
+            L"GUI: top of the window probes PawnIO before hardware; Open official page + Retry.\n";
         return tok == L"help" || tok == L"-h" || tok == L"--help" ? 0 : 2;
     } catch (const std::exception& ex) {
         std::cerr << "Error: " << ex.what() << "\n";

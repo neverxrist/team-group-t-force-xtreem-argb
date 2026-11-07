@@ -14,20 +14,31 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Configure
-      run: cmake -S native-win32 -B native-win32/build -G "Visual Studio 17 2022" -A x64
-    - name: Build
-      run: cmake --build native-win32/build --config Release
+    - name: Configure and build (MSVC via vswhere, NMake)
+      shell: cmd
+      run: |
+        for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+          echo VS=%%i
+          call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+        )
+        if not defined VCINSTALLDIR (
+          echo VCINSTALLDIR is empty — Visual Studio C++ tools not found
+          exit /b 1
+        )
+        cmake -S native-win32 -B native-win32/build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+        cmake --build native-win32/build
     - name: Logic tests (no hardware)
-      run: native-win32\build\Release\xtreem_logic_tests.exe
+      run: native-win32\build\out\xtreem_logic_tests.exe
     - name: GUI smoke (no PawnIO / no SMBus)
-      run: native-win32\build\Release\xtreem_gui_smoke.exe
+      run: native-win32\build\out\xtreem_gui_smoke.exe
     - name: Package portable ZIP
       shell: pwsh
       run: |
+        $exe = "native-win32/build/out/XtreemRgbToggle.exe"
+        if (-not (Test-Path $exe)) { throw "missing $exe" }
         $out = "native-package"
         New-Item -ItemType Directory -Force -Path $out | Out-Null
-        Copy-Item native-win32/build/Release/XtreemRgbToggle.exe $out/
+        Copy-Item $exe $out/
         Copy-Item native/PawnIOLib.dll $out/
         Copy-Item native/SmbusPIIX4.bin $out/
         Copy-Item native/COPYING.PawnIO.Modules $out/

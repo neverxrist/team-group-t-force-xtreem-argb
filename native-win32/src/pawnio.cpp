@@ -4,42 +4,49 @@
 #include <winsvc.h>
 #include <filesystem>
 
+static bool win32_hr(long hr, unsigned long code) {
+    unsigned long u = (unsigned long)hr;
+    return u == code || u == (0x80070000ul | (code & 0xFFFFul));
+}
+
 PawnioStatus classify_pawnio(bool dll_ok, bool bin_ok, bool service_query_ok,
                              unsigned long service_winerr, bool service_present,
                              unsigned long service_state, long version_hr, long open_hr) {
     if (!dll_ok) return PawnioStatus::BundledDllMissing;
     if (!bin_ok) return PawnioStatus::BundledBinMissing;
-    if (service_query_ok && !service_present) {
-        if (service_winerr == ERROR_ACCESS_DENIED)
-            return PawnioStatus::PermissionDenied;
-        if (service_winerr == ERROR_SERVICE_DOES_NOT_EXIST)
-            return PawnioStatus::DriverMissing;
-    }
-    if (service_query_ok && service_present &&
-        service_state != SERVICE_RUNNING && service_state != SERVICE_START_PENDING)
+
+    // A successful version+open means the kernel driver is actually usable.
+    // Do not override that with a noisy SCM query (and never treat DLL/bin as the driver).
+    if (version_hr >= 0 && open_hr >= 0)
+        return PawnioStatus::Ready;
+
+    if (win32_hr(open_hr, ERROR_ACCESS_DENIED) || win32_hr(version_hr, ERROR_ACCESS_DENIED) ||
+        (service_query_ok && !service_present && service_winerr == ERROR_ACCESS_DENIED))
+        return PawnioStatus::PermissionDenied;
+
+    if (win32_hr(open_hr, ERROR_SERVICE_DOES_NOT_EXIST) ||
+        win32_hr(version_hr, ERROR_SERVICE_DOES_NOT_EXIST) ||
+        (service_query_ok && !service_present && service_winerr == ERROR_SERVICE_DOES_NOT_EXIST))
+        return PawnioStatus::DriverMissing;
+
+    if (win32_hr(open_hr, ERROR_SERVICE_NOT_ACTIVE) ||
+        win32_hr(version_hr, ERROR_SERVICE_NOT_ACTIVE) ||
+        (service_query_ok && service_present &&
+         (service_state == SERVICE_STOPPED || service_state == SERVICE_STOP_PENDING ||
+          service_state == SERVICE_PAUSED || service_state == SERVICE_PAUSE_PENDING)))
         return PawnioStatus::DriverStopped;
-    if (open_hr < 0) {
-        auto u = (unsigned long)open_hr;
-        if (u == 0x80070005ul || u == 5)
-            return PawnioStatus::PermissionDenied;
-        if (u == 0x80070424ul || u == ERROR_SERVICE_DOES_NOT_EXIST)
-            return PawnioStatus::DriverMissing;
-        if (u == 0x80070426ul || u == ERROR_SERVICE_NOT_ACTIVE)
-            return PawnioStatus::DriverStopped;
-        return PawnioStatus::Other;
-    }
-    if (version_hr < 0) return PawnioStatus::Other;
-    return PawnioStatus::Ready;
+
+    return PawnioStatus::Other;
 }
 
 std::wstring pawnio_status_text(PawnioStatus s, long version_hr, long open_hr, uint32_t version) {
-    wchar_t extra[80]{};
-    swprintf(extra, 80, L" (version HRESULT=0x%08X open HRESULT=0x%08X)",
+    wchar_t extra[96]{};
+    swprintf(extra, 96, L" (version HRESULT=0x%08X open HRESULT=0x%08X)",
              (unsigned)version_hr, (unsigned)open_hr);
     switch (s) {
     case PawnioStatus::Ready: {
-        wchar_t b[128];
-        swprintf(b, 128, L"PawnIO driver ready (v%u.%u.%u). Bundled DLL/bin are not the kernel driver.",
+        wchar_t b[160];
+        swprintf(b, 160, L"PawnIO kernel driver ready (v%u.%u.%u). Bundled DLL/bin are not the driver.",
                  (version >> 16) & 0xFF, (version >> 8) & 0xFF, version & 0xFF);
         return b;
     }
@@ -48,14 +55,37 @@ std::wstring pawnio_status_text(PawnioStatus s, long version_hr, long open_hr, u
     case PawnioStatus::BundledBinMissing:
         return L"SmbusPIIX4.bin is missing next to the exe (PawnIO module blob, not the kernel driver).";
     case PawnioStatus::DriverMissing:
-        return std::wstring(L"PawnIO kernel driver is not installed. Install it from https://pawnio.eu (this app will not download it).") + extra;
+        return std::wstring(L"PawnIO kernel driver is not installed.") + extra;
     case PawnioStatus::DriverStopped:
-        return std::wstring(L"PawnIO kernel driver is installed but not running. Start the PawnIO service, or reinstall from https://pawnio.eu") + extra;
+        return std::wstring(L"PawnIO kernel driver is installed but unavailable (service not running).") + extra;
     case PawnioStatus::PermissionDenied:
-        return std::wstring(L"PawnIO access denied. Run this program as Administrator.") + extra;
+        return std::wstring(L"PawnIO access denied — not classified as a missing driver. Run as Administrator.") + extra;
     default:
-        return std::wstring(L"PawnIO initialization failed (not classified as missing driver).") + extra;
+        return std::wstring(L"PawnIO initialization failed (not classified as a missing driver).") + extra;
     }
+}
+
+std::wstring pawnio_next_step(PawnioStatus s) {
+    switch (s) {
+    case PawnioStatus::Ready:
+        return L"Driver check passed. Hardware access may proceed.";
+    case PawnioStatus::BundledDllMissing:
+    case PawnioStatus::BundledBinMissing:
+        return L"Restore PawnIOLib.dll and SmbusPIIX4.bin from the portable ZIP, then Retry. Those files are not the kernel driver.";
+    case PawnioStatus::DriverMissing:
+        return L"Click “Open official PawnIO page”, install the kernel driver yourself from https://pawnio.eu, then Retry. This app does not download or run the installer.";
+    case PawnioStatus::DriverStopped:
+        return L"Start the Windows service named PawnIO, or reinstall from https://pawnio.eu (page opened by you), then Retry.";
+    case PawnioStatus::PermissionDenied:
+        return L"Right-click XtreemRgbToggle.exe → Run as administrator, then Retry. Do not treat this as a missing driver.";
+    default:
+        return L"Retry after addressing the HRESULT. This is not labeled as a missing driver. The official page remains https://pawnio.eu if you still need to install.";
+    }
+}
+
+std::wstring pawnio_dialog_text(const PawnioProbe& p) {
+    return p.message + L"\n\n" + pawnio_next_step(p.status) +
+           L"\n\nBundled PawnIOLib.dll / SmbusPIIX4.bin never install the kernel driver.";
 }
 
 bool PawnioApi::load_dll(const std::wstring& dir) {
@@ -81,7 +111,7 @@ static void query_service(bool& ok, unsigned long& winerr, bool& present, unsign
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
     if (!scm) {
         winerr = GetLastError();
-        ok = true; // we did query; ACCESS_DENIED vs other
+        ok = true;
         present = false;
         return;
     }
@@ -89,7 +119,6 @@ static void query_service(bool& ok, unsigned long& winerr, bool& present, unsign
     if (!svc) {
         winerr = GetLastError();
         present = (winerr != ERROR_SERVICE_DOES_NOT_EXIST);
-        if (winerr == ERROR_SERVICE_DOES_NOT_EXIST) present = false;
         ok = true;
         CloseServiceHandle(scm);
         return;
@@ -118,7 +147,7 @@ PawnioProbe probe_pawnio(const std::wstring& exe_dir) {
     bool sq_ok = false, present = false;
     unsigned long swerr = 0, sstate = 0;
     query_service(sq_ok, swerr, present, sstate);
-    p.service_query_ok = true;
+    p.service_query_ok = sq_ok;
     p.service_winerr = swerr;
     p.service_present = present;
     p.service_state = sstate;
@@ -127,15 +156,13 @@ PawnioProbe probe_pawnio(const std::wstring& exe_dir) {
     uint32_t ver = 0;
     if (dll_ok) {
         PawnioApi api;
-        if (api.load_dll(exe_dir) && api.version) {
+        if (api.load_dll(exe_dir) && api.version && api.open) {
             vhr = api.version(&ver);
             p.version = ver;
-            if (pawnio_ok((int)vhr) && api.open) {
-                void* h = nullptr;
-                ohr = api.open(&h);
-                if (pawnio_ok((int)ohr) && h && api.close)
-                    api.close(h);
-            }
+            void* h = nullptr;
+            ohr = api.open(&h);
+            if (pawnio_ok((int)ohr) && h && api.close)
+                api.close(h);
         } else {
             dll_ok = false;
         }

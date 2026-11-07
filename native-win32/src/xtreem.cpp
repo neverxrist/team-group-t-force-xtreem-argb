@@ -152,7 +152,7 @@ std::vector<XtreemDevice> XtreemHardware::detect() {
     if (!last_probe.can_use_hardware() || !api_.mod)
         refresh_probe();
     if (!last_probe.can_use_hardware())
-        throw std::runtime_error("PawnIO not ready; see GUI status (not every error is a missing driver)");
+        throw std::runtime_error("PawnIO not ready (not every error is a missing driver); see classified status");
     auto dir = dir_;
     auto bin = bin_path_;
     auto* api = &api_;

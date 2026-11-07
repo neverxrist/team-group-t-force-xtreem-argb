@@ -53,12 +53,30 @@ int main() {
 
     CHECK(classify_pawnio(false, true, true, 0, false, 0, 0, 0) == PawnioStatus::BundledDllMissing);
     CHECK(classify_pawnio(true, false, true, 0, false, 0, 0, 0) == PawnioStatus::BundledBinMissing);
-    CHECK(classify_pawnio(true, true, true, ERROR_SERVICE_DOES_NOT_EXIST, false, 0, 0, 0) == PawnioStatus::DriverMissing);
-    CHECK(classify_pawnio(true, true, true, ERROR_ACCESS_DENIED, false, 0, 0, 0) == PawnioStatus::PermissionDenied);
-    CHECK(classify_pawnio(true, true, true, 0, true, SERVICE_STOPPED, 0, 0) == PawnioStatus::DriverStopped);
+    CHECK(classify_pawnio(true, true, true, ERROR_SERVICE_DOES_NOT_EXIST, false, 0, 0, (long)0x80070424) == PawnioStatus::DriverMissing);
+    CHECK(classify_pawnio(true, true, true, ERROR_ACCESS_DENIED, false, 0, 0, (long)0x80070005) == PawnioStatus::PermissionDenied);
+    CHECK(classify_pawnio(true, true, true, 0, true, SERVICE_STOPPED, 0, (long)0x80070426) == PawnioStatus::DriverStopped);
     CHECK(classify_pawnio(true, true, true, 0, true, SERVICE_RUNNING, 0, (long)0x80070005) == PawnioStatus::PermissionDenied);
     CHECK(classify_pawnio(true, true, true, 0, true, SERVICE_RUNNING, 0, (long)0x8000ABCD) == PawnioStatus::Other);
     CHECK(classify_pawnio(true, true, true, 0, true, SERVICE_RUNNING, 0, 0) == PawnioStatus::Ready);
+    // Successful open wins over a "service missing" SCM query — not every failure is "missing driver".
+    CHECK(classify_pawnio(true, true, true, ERROR_SERVICE_DOES_NOT_EXIST, false, 0, 0, 0) == PawnioStatus::Ready);
+    CHECK(classify_pawnio(true, true, true, 0, true, SERVICE_RUNNING, (long)0x80004005, 0) == PawnioStatus::Other);
+    {
+        auto other = pawnio_status_text(PawnioStatus::Other, (long)0x8000ABCD, (long)0x8000ABCD, 0);
+        CHECK(other.find(L"not classified as a missing driver") != std::wstring::npos);
+        auto denied = pawnio_status_text(PawnioStatus::PermissionDenied, 0, (long)0x80070005, 0);
+        CHECK(denied.find(L"not classified as a missing driver") != std::wstring::npos);
+        CHECK(pawnio_next_step(PawnioStatus::DriverMissing).find(L"pawnio.eu") != std::wstring::npos);
+        CHECK(pawnio_next_step(PawnioStatus::PermissionDenied).find(L"missing driver") != std::wstring::npos);
+        PawnioProbe missing; missing.status = PawnioStatus::DriverMissing;
+        PawnioProbe perm; perm.status = PawnioStatus::PermissionDenied;
+        PawnioProbe otherp; otherp.status = PawnioStatus::Other;
+        CHECK(missing.offer_install_page());
+        CHECK(!perm.offer_install_page());
+        CHECK(!otherp.offer_install_page());
+        CHECK(!otherp.can_use_hardware());
+    }
 
     auto tmp = std::filesystem::temp_directory_path() / "xtreem_test";
     std::filesystem::create_directories(tmp);

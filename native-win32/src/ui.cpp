@@ -15,11 +15,12 @@
 #include <chrono>
 
 enum {
-    IDC_STATUS = 1001, IDC_PAWNIO, IDC_OPENPAWNIO, IDC_RETRY, IDC_MODULES, IDC_RESCAN,
+    IDC_STATUS = 1001, IDC_PAWNIO, IDC_PAWNIOLINK, IDC_OPENPAWNIO, IDC_RETRY, IDC_MODULES, IDC_RESCAN,
     IDC_ALL = 1100, IDC_MOD0 = 1101, IDC_OFF = 1200, IDC_ON, IDC_EFFECT, IDC_SPEED, IDC_SPEEDL,
     IDC_REV, IDC_APPLYEFF, IDC_LIVE, IDC_PICK, IDC_R, IDC_G, IDC_B, IDC_VR, IDC_VG, IDC_VB,
     IDC_SWATCH, IDC_APPLYCOL, IDC_INSTAS, IDC_REMAS
 };
+static constexpr int kModRadioY = 208;
 static constexpr UINT WM_HW = WM_APP + 1;
 static constexpr UINT WM_TRAY = WM_APP + 2;
 static constexpr int PREVIEW_MS = 100;
@@ -36,7 +37,7 @@ struct UiState {
     uint8_t pending_r = 0, pending_g = 0, pending_b = 0;
     bool pending_color = false;
     std::chrono::steady_clock::time_point last_preview{};
-    HWND hStatus, hPawnio, hOpen, hRetry, hMods, hRescan, hAll, hOff, hOn;
+    HWND hStatus, hPawnio, hLink, hOpen, hRetry, hMods, hRescan, hAll, hOff, hOn;
     HWND hEff, hSpeed, hSpeedL, hRev, hApplyEff, hLive, hPick, hR, hG, hB, hVR, hVG, hVB, hSw, hApplyCol;
     HWND hInst, hRem;
     HWND hModRb[8]{};
@@ -57,7 +58,12 @@ std::wstring exe_directory() {
     return sl == std::wstring::npos ? L"." : p.substr(0, sl);
 }
 void open_pawnio_site() {
-    ShellExecuteW(nullptr, L"open", kPawnioOfficialPage, nullptr, nullptr, SW_SHOWNORMAL);
+    INT_PTR r = (INT_PTR)ShellExecuteW(nullptr, L"open", kPawnioOfficialPage, nullptr, nullptr, SW_SHOWNORMAL);
+    if (r <= 32) {
+        MessageBoxW(nullptr,
+                    L"Could not open https://pawnio.eu\n\nOpen that official page in a browser yourself and install the kernel driver there.\nThis program does not download or run PawnIO_setup.exe.",
+                    L"PawnIO page", MB_OK | MB_ICONINFORMATION);
+    }
 }
 
 static HWND mk(HWND p, const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id) {
@@ -107,9 +113,9 @@ static void refresh_autostart() {
 
 static void apply_pawnio_ui() {
     SetWindowTextW(g->hPawnio, g->probe.message.c_str());
-    BOOL offer = g->probe.offer_install_page() ? TRUE : FALSE;
-    EnableWindow(g->hOpen, offer || g->probe.status != PawnioStatus::Ready);
-    EnableWindow(g->hRetry, TRUE);
+    EnableWindow(g->hOpen, TRUE);
+    EnableWindow(g->hRetry, g->busy ? FALSE : TRUE);
+    EnableWindow(g->hLink, TRUE);
     set_hw_enabled(!g->busy && g->probe.can_use_hardware() && !g->devices.empty());
     EnableWindow(g->hRescan, !g->busy && g->probe.can_use_hardware());
 }
@@ -122,7 +128,7 @@ static void rebuild_mod_radios() {
     for (int i = 0; i < g->nmod; i++) {
         wchar_t t[64];
         swprintf(t, 64, L"Module 0x%02X (Port %d)", g->devices[i].address7, g->devices[i].bus_port);
-        g->hModRb[i] = mk(g->wnd, L"BUTTON", t, BS_AUTORADIOBUTTON | WS_GROUP, 20, 168 + i * 22, 320, 20, IDC_MOD0 + i);
+        g->hModRb[i] = mk(g->wnd, L"BUTTON", t, BS_AUTORADIOBUTTON | WS_GROUP, 20, kModRadioY + i * 22, 320, 20, IDC_MOD0 + i);
     }
     wchar_t m[128];
     if (g->devices.empty())
@@ -186,53 +192,57 @@ static void queue_color(bool preview) {
 }
 
 static void layout(HWND w) {
-    g->hStatus = mk(w, L"STATIC", L"Status: Starting", 0, 12, 8, 520, 18, IDC_STATUS);
-    g->hPawnio = mk(w, L"STATIC", L"PawnIO: not checked yet", 0, 12, 28, 520, 36, IDC_PAWNIO);
-    g->hOpen = mk(w, L"BUTTON", L"Open PawnIO site (pawnio.eu)", 0, 12, 68, 250, 26, IDC_OPENPAWNIO);
-    g->hRetry = mk(w, L"BUTTON", L"Retry driver / detect", 0, 272, 68, 180, 26, IDC_RETRY);
-    g->hMods = mk(w, L"STATIC", L"Modules: —", 0, 12, 100, 520, 18, IDC_MODULES);
-    g->hRescan = mk(w, L"BUTTON", L"Rescan modules", 0, 12, 120, 200, 26, IDC_RESCAN);
-    mk(w, L"BUTTON", L"Module selection", BS_GROUPBOX, 12, 152, 520, 40, 0);
-    g->hAll = mk(w, L"BUTTON", L"All modules", BS_AUTORADIOBUTTON | WS_GROUP, 24, 168, 160, 20, IDC_ALL);
+    g->hStatus = mk(w, L"STATIC", L"Status: Starting — PawnIO not checked yet", 0, 12, 8, 520, 18, IDC_STATUS);
+    g->hPawnio = mk(w, L"STATIC", L"PawnIO: not checked yet (no hardware access until this passes)", 0, 12, 28, 520, 48, IDC_PAWNIO);
+    g->hLink = CreateWindowExW(0, WC_LINK,
+        L"Official PawnIO download/install page (you open it; this app never downloads): <a href=\"https://pawnio.eu\">https://pawnio.eu</a>",
+        WS_CHILD | WS_VISIBLE, 12, 78, 520, 22, w, (HMENU)(INT_PTR)IDC_PAWNIOLINK, GetModuleHandleW(nullptr), nullptr);
+    if (g->font) SendMessageW(g->hLink, WM_SETFONT, (WPARAM)g->font, TRUE);
+    g->hOpen = mk(w, L"BUTTON", L"Open official PawnIO page", 0, 12, 102, 250, 26, IDC_OPENPAWNIO);
+    g->hRetry = mk(w, L"BUTTON", L"Retry after installing", 0, 272, 102, 250, 26, IDC_RETRY);
+    g->hMods = mk(w, L"STATIC", L"Modules: —", 0, 12, 134, 520, 18, IDC_MODULES);
+    g->hRescan = mk(w, L"BUTTON", L"Rescan modules", 0, 12, 154, 200, 26, IDC_RESCAN);
+    mk(w, L"BUTTON", L"Module selection", BS_GROUPBOX, 12, 186, 520, 40, 0);
+    g->hAll = mk(w, L"BUTTON", L"All modules", BS_AUTORADIOBUTTON | WS_GROUP, 24, kModRadioY, 160, 20, IDC_ALL);
     SendMessageW(g->hAll, BM_SETCHECK, BST_CHECKED, 0);
-    g->hOff = mk(w, L"BUTTON", L"OFF", 0, 12, 300, 250, 32, IDC_OFF);
-    g->hOn = mk(w, L"BUTTON", L"ON (T-Force Default)", 0, 272, 300, 250, 32, IDC_ON);
-    mk(w, L"STATIC", L"Effect:", 0, 12, 344, 60, 18, 0);
-    g->hEff = mk(w, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, 80, 340, 360, 200, IDC_EFFECT);
+    g->hOff = mk(w, L"BUTTON", L"OFF", 0, 12, 340, 250, 32, IDC_OFF);
+    g->hOn = mk(w, L"BUTTON", L"ON (T-Force Default)", 0, 272, 340, 250, 32, IDC_ON);
+    mk(w, L"STATIC", L"Effect:", 0, 12, 384, 60, 18, 0);
+    g->hEff = mk(w, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, 80, 380, 360, 200, IDC_EFFECT);
     for (int i = 0; i < kModeCount; i++) {
         wchar_t t[80];
         swprintf(t, 80, L"%S (0x%02X)", kModes[i].name, kModes[i].value);
         SendMessageW(g->hEff, CB_ADDSTRING, 0, (LPARAM)t);
     }
     SendMessageW(g->hEff, CB_SETCURSEL, 25, 0);
-    mk(w, L"STATIC", L"Speed:", 0, 12, 376, 60, 18, 0);
-    g->hSpeed = mk(w, TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 80, 372, 280, 30, IDC_SPEED);
+    mk(w, L"STATIC", L"Speed:", 0, 12, 416, 60, 18, 0);
+    g->hSpeed = mk(w, TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 80, 412, 280, 30, IDC_SPEED);
     SendMessageW(g->hSpeed, TBM_SETRANGE, TRUE, MAKELPARAM(0, 4));
     SendMessageW(g->hSpeed, TBM_SETPOS, TRUE, 2);
-    g->hSpeedL = mk(w, L"STATIC", L"Normal", 0, 370, 376, 80, 18, IDC_SPEEDL);
-    g->hRev = mk(w, L"BUTTON", L"Reverse direction", BS_AUTOCHECKBOX, 12, 408, 200, 20, IDC_REV);
-    g->hApplyEff = mk(w, L"BUTTON", L"Apply effect", 0, 12, 432, 200, 26, IDC_APPLYEFF);
-    g->hLive = mk(w, L"BUTTON", L"Live preview", BS_AUTOCHECKBOX, 12, 470, 140, 20, IDC_LIVE);
+    g->hSpeedL = mk(w, L"STATIC", L"Normal", 0, 370, 416, 80, 18, IDC_SPEEDL);
+    g->hRev = mk(w, L"BUTTON", L"Reverse direction", BS_AUTOCHECKBOX, 12, 448, 200, 20, IDC_REV);
+    g->hApplyEff = mk(w, L"BUTTON", L"Apply effect", 0, 12, 472, 200, 26, IDC_APPLYEFF);
+    g->hLive = mk(w, L"BUTTON", L"Live preview", BS_AUTOCHECKBOX, 12, 510, 140, 20, IDC_LIVE);
     SendMessageW(g->hLive, BM_SETCHECK, BST_CHECKED, 0);
-    g->hPick = mk(w, L"BUTTON", L"Pick color", 0, 160, 466, 120, 26, IDC_PICK);
-    mk(w, L"STATIC", L"R", 0, 12, 504, 16, 16, 0);
-    g->hR = mk(w, TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 32, 500, 220, 28, IDC_R);
-    g->hVR = mk(w, L"STATIC", L"0", 0, 260, 504, 40, 16, IDC_VR);
-    mk(w, L"STATIC", L"G", 0, 12, 536, 16, 16, 0);
-    g->hG = mk(w, TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 32, 532, 220, 28, IDC_G);
-    g->hVG = mk(w, L"STATIC", L"0", 0, 260, 536, 40, 16, IDC_VG);
-    mk(w, L"STATIC", L"B", 0, 12, 568, 16, 16, 0);
-    g->hB = mk(w, TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 32, 564, 220, 28, IDC_B);
-    g->hVB = mk(w, L"STATIC", L"0", 0, 260, 568, 40, 16, IDC_VB);
+    g->hPick = mk(w, L"BUTTON", L"Pick color", 0, 160, 506, 120, 26, IDC_PICK);
+    mk(w, L"STATIC", L"R", 0, 12, 544, 16, 16, 0);
+    g->hR = mk(w, TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 32, 540, 220, 28, IDC_R);
+    g->hVR = mk(w, L"STATIC", L"0", 0, 260, 544, 40, 16, IDC_VR);
+    mk(w, L"STATIC", L"G", 0, 12, 576, 16, 16, 0);
+    g->hG = mk(w, TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 32, 572, 220, 28, IDC_G);
+    g->hVG = mk(w, L"STATIC", L"0", 0, 260, 576, 40, 16, IDC_VG);
+    mk(w, L"STATIC", L"B", 0, 12, 608, 16, 16, 0);
+    g->hB = mk(w, TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 32, 604, 220, 28, IDC_B);
+    g->hVB = mk(w, L"STATIC", L"0", 0, 260, 608, 40, 16, IDC_VB);
     SendMessageW(g->hR, TBM_SETRANGE, TRUE, MAKELPARAM(0, 255));
     SendMessageW(g->hG, TBM_SETRANGE, TRUE, MAKELPARAM(0, 255));
     SendMessageW(g->hB, TBM_SETRANGE, TRUE, MAKELPARAM(0, 255));
-    g->hSw = mk(w, L"STATIC", L"", WS_BORDER, 320, 504, 80, 80, IDC_SWATCH);
-    g->hApplyCol = mk(w, L"BUTTON", L"Apply static color", 0, 12, 600, 200, 26, IDC_APPLYCOL);
-    g->hInst = mk(w, L"BUTTON", L"Install Autostart", 0, 12, 640, 250, 26, IDC_INSTAS);
-    g->hRem = mk(w, L"BUTTON", L"Remove Autostart", 0, 272, 640, 250, 26, IDC_REMAS);
-    mk(w, L"STATIC", L"PawnIO kernel driver is required (https://pawnio.eu). DLL/bin next to the exe do not install it. This app never downloads the installer.",
-       0, 12, 676, 520, 36, 0);
+    g->hSw = mk(w, L"STATIC", L"", WS_BORDER, 320, 544, 80, 80, IDC_SWATCH);
+    g->hApplyCol = mk(w, L"BUTTON", L"Apply static color", 0, 12, 640, 200, 26, IDC_APPLYCOL);
+    g->hInst = mk(w, L"BUTTON", L"Install Autostart", 0, 12, 680, 250, 26, IDC_INSTAS);
+    g->hRem = mk(w, L"BUTTON", L"Remove Autostart", 0, 272, 680, 250, 26, IDC_REMAS);
+    mk(w, L"STATIC", L"PawnIO kernel driver is required. DLL/bin next to the exe do not install it. This app never downloads the installer and does not claim Setup is finished.",
+       0, 12, 716, 520, 36, 0);
 }
 
 static void update_rgb_labels() {
@@ -256,7 +266,7 @@ struct HwNotify { bool ok; std::wstring msg; std::vector<XtreemDevice> devices; 
 static LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
     if (m == WM_CREATE) {
         g->wnd = w;
-        INITCOMMONCONTROLSEX icc{ sizeof(icc), ICC_BAR_CLASSES | ICC_STANDARD_CLASSES };
+        INITCOMMONCONTROLSEX icc{ sizeof(icc), ICC_BAR_CLASSES | ICC_STANDARD_CLASSES | ICC_LINK_CLASS };
         InitCommonControlsEx(&icc);
         g->font = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                               0, 0, 0, 0, L"Segoe UI");
@@ -288,10 +298,9 @@ static LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
                 g->busy = true;
                 SetWindowTextW(g->hStatus, L"Status: Detecting modules...");
                 g->worker->post(j);
-            } else if (g->probe.offer_install_page() || g->probe.status == PawnioStatus::PermissionDenied
-                       || g->probe.status == PawnioStatus::Other) {
-                MessageBoxW(w, (n->msg + L"\n\nUse “Open PawnIO site” (https://pawnio.eu) to install the kernel driver yourself, then Retry.\nThis program does not download or run the installer.\nBundled PawnIOLib.dll / SmbusPIIX4.bin are not the driver.").c_str(),
-                            L"PawnIO required", MB_OK | MB_ICONWARNING);
+            } else {
+                UINT icon = g->probe.offer_install_page() ? MB_ICONWARNING : MB_ICONINFORMATION;
+                MessageBoxW(w, pawnio_dialog_text(g->probe).c_str(), L"PawnIO driver check", MB_OK | icon);
             }
         }
         if (n->kind == HwKind::Detect)
@@ -381,6 +390,13 @@ static LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
             refresh_autostart();
         }
     }
+    if (m == WM_NOTIFY) {
+        auto* hdr = (NMHDR*)lp;
+        if (hdr && hdr->idFrom == IDC_PAWNIOLINK && (hdr->code == NM_CLICK || hdr->code == NM_RETURN)) {
+            open_pawnio_site();
+            return 0;
+        }
+    }
     if (m == WM_DESTROY) {
         if (g->worker) g->worker->request_stop();
         PostQuitMessage(0);
@@ -405,7 +421,7 @@ int run_gui(HINSTANCE inst, const wchar_t* exe_dir, bool smoke) {
     RegisterClassW(&wc);
     HWND w = CreateWindowExW(0, wc.lpszClassName, L"XTREEM RGB Control",
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 560, 760, nullptr, nullptr, inst, nullptr);
+                             CW_USEDEFAULT, CW_USEDEFAULT, 560, 800, nullptr, nullptr, inst, nullptr);
     ShowWindow(w, SW_SHOW);
     UpdateWindow(w);
     MSG msg;

@@ -3,20 +3,22 @@
 #include <string>
 #include <windows.h>
 
-// Official vendor site verified 2026-11-07: https://pawnio.eu
-// That page's "Download Now" currently points at:
-// https://github.com/namazso/PawnIO.Setup/releases/latest/download/PawnIO_setup.exe
-// This app never downloads or runs that installer; it only opens the site on user click.
+// Official vendor site, re-verified 2026-11-07:
+//   https://pawnio.eu  (HTTP 200)
+// That page's "Download Now" button is a user-facing installer link:
+//   https://github.com/namazso/PawnIO.Setup/releases/latest/download/PawnIO_setup.exe
+// This app never downloads or runs that installer. It only ShellExecute's the
+// official page when the user clicks the button / SysLink.
 inline constexpr const wchar_t* kPawnioOfficialPage = L"https://pawnio.eu";
 
 enum class PawnioStatus {
     Ready,
-    BundledDllMissing,
-    BundledBinMissing,
-    DriverMissing,
-    DriverStopped,
-    PermissionDenied,
-    Other
+    BundledDllMissing,   // user-mode PawnIOLib.dll next to exe
+    BundledBinMissing,   // user-mode SmbusPIIX4.bin next to exe
+    DriverMissing,       // kernel driver / PawnIO service not installed
+    DriverStopped,       // installed but unavailable (not running)
+    PermissionDenied,    // admin / ACL; not a missing-driver diagnosis
+    Other                // HRESULT shown; not labeled missing
 };
 
 struct PawnioProbe {
@@ -40,6 +42,8 @@ PawnioStatus classify_pawnio(bool dll_ok, bool bin_ok, bool service_query_ok,
                              unsigned long service_state, long version_hr, long open_hr);
 
 std::wstring pawnio_status_text(PawnioStatus s, long version_hr, long open_hr, uint32_t version);
+std::wstring pawnio_next_step(PawnioStatus s);
+std::wstring pawnio_dialog_text(const PawnioProbe& p);
 PawnioProbe probe_pawnio(const std::wstring& exe_dir);
 
 struct PawnioApi {

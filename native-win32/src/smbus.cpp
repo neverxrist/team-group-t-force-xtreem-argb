@@ -28,13 +28,13 @@ AmdSmBus AmdSmBus::open(PawnioApi& api, const std::wstring& module_path, int por
     unsigned int ver = 0;
     int vhr = api.version(&ver);
     if (!pawnio_ok(vhr))
-        throw std::runtime_error("pawnio_version failed; kernel driver may be missing or not loaded");
+        throw std::runtime_error("pawnio_version failed after a Ready probe (not treated as a missing driver)");
     void* handle = nullptr;
     int ohr = api.open(&handle);
     if (!pawnio_ok(ohr) || !handle) {
         if ((unsigned)ohr == 0x80070005u)
-            throw std::runtime_error("pawnio_open access denied (run as Administrator)");
-        throw std::runtime_error("pawnio_open failed");
+            throw std::runtime_error("pawnio_open access denied (run as Administrator; not a missing-driver diagnosis)");
+        throw std::runtime_error("pawnio_open failed (not classified as a missing driver here)");
     }
     int lhr = api.load(handle, blob.data(), blob.size());
     if (!pawnio_ok(lhr)) {
