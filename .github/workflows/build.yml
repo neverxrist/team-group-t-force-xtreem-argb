@@ -12,57 +12,85 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
-        
-    - name: Restore dependencies
-      run: dotnet restore XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj
-      
+
+    - name: Restore solution
+      run: dotnet restore XtreemRgbToggle.sln
+
     - name: Build
-      run: dotnet build XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj -c Release --no-restore
-      
-    - name: Run Tests
-      run: dotnet test XtreemRgbToggle.Tests/XtreemRgbToggle.Tests.csproj --no-restore --verbosity normal
-      
-    - name: Publish win-x64
-      run: dotnet publish XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj -c Release -r win-x64 --self-contained false --no-build -o publish-win-x64
-      
+      run: dotnet build XtreemRgbToggle.sln -c Release --no-restore
+
+    - name: Run tests
+      run: dotnet test XtreemRgbToggle/XtreemRgbToggle.Tests/XtreemRgbToggle.Tests.csproj -c Release --no-build --verbosity normal
+
+    - name: Publish self-contained win-x64
+      run: >
+        dotnet publish XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj
+        -c Release -r win-x64 --self-contained true
+        -p:PublishSingleFile=false -p:PublishTrimmed=false
+        -o publish-selfcontained
+
+    - name: Publish framework-dependent win-x64
+      run: >
+        dotnet publish XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj
+        -c Release -r win-x64 --self-contained false
+        -o publish-framework
+
     - name: Verify native dependencies
+      shell: pwsh
       run: |
-        if (!(Test-Path "native/PawnIOLib.dll")) { throw "Missing PawnIOLib.dll" }
-        if (!(Test-Path "native/SmbusPIIX4.bin")) { throw "Missing SmbusPIIX4.bin" }
-        if (!(Test-Path "native/COPYING.PawnIO.Modules")) { throw "Missing license" }
+        foreach ($f in @("native/PawnIOLib.dll","native/SmbusPIIX4.bin","native/COPYING.PawnIO.Modules","LICENSE","README.md")) {
+          if (!(Test-Path $f)) { throw "Missing $f" }
+        }
+        $dll = Get-Item native/PawnIOLib.dll
+        $bin = Get-Item native/SmbusPIIX4.bin
+        if ($dll.Length -ne 4096) { throw "PawnIOLib.dll size $($dll.Length) != 4096" }
+        if ($bin.Length -ne 42404) { throw "SmbusPIIX4.bin size $($bin.Length) != 42404" }
         Write-Host "Native dependencies verified"
+
+    - name: Package portable ZIPs
       shell: pwsh
-      
-    - name: Package portable ZIP
       run: |
-        Copy-Item native/PawnIOLib.dll publish-win-x64/
-        Copy-Item native/SmbusPIIX4.bin publish-win-x64/
-        Copy-Item native/COPYING.PawnIO.Modules publish-win-x64/
-        Copy-Item README.md publish-win-x64/README.txt
-        Compress-Archive -Path publish-win-x64/* -DestinationPath XtreemRgbToggle-portable.zip
-      shell: pwsh
-      
+        function Copy-Payload($dest) {
+          Copy-Item native/PawnIOLib.dll $dest -Force
+          Copy-Item native/SmbusPIIX4.bin $dest -Force
+          Copy-Item native/COPYING.PawnIO.Modules $dest -Force
+          Copy-Item LICENSE "$dest/LICENSE.txt" -Force
+          Copy-Item README.md "$dest/README.txt" -Force
+        }
+        Copy-Payload publish-selfcontained
+        Copy-Payload publish-framework
+        if (!(Test-Path "publish-selfcontained/XtreemRgbToggle.exe")) { throw "Missing self-contained exe" }
+        Compress-Archive -Path publish-selfcontained/* -DestinationPath XtreemRgbToggle-portable-win-x64-selfcontained.zip
+        Compress-Archive -Path publish-framework/* -DestinationPath XtreemRgbToggle-portable-win-x64-framework.zip
+        Write-Host "Self-contained ZIP bytes: $((Get-Item XtreemRgbToggle-portable-win-x64-selfcontained.zip).Length)"
+        Write-Host "Framework ZIP bytes: $((Get-Item XtreemRgbToggle-portable-win-x64-framework.zip).Length)"
+
     - name: Calculate SHA256
-      run: |
-        $hash = (Get-FileHash XtreemRgbToggle-portable.zip -Algorithm SHA256).Hash
-        Write-Host "SHA256: $hash"
-        "$hash  XtreemRgbToggle-portable.zip" | Out-File -FilePath SHA256SUMS.txt -Encoding utf8
       shell: pwsh
-      
+      run: |
+        $commit = git rev-parse HEAD
+        @(
+          "SOURCE_COMMIT $commit"
+          "$((Get-FileHash XtreemRgbToggle-portable-win-x64-selfcontained.zip -Algorithm SHA256).Hash)  XtreemRgbToggle-portable-win-x64-selfcontained.zip"
+          "$((Get-FileHash XtreemRgbToggle-portable-win-x64-framework.zip -Algorithm SHA256).Hash)  XtreemRgbToggle-portable-win-x64-framework.zip"
+        ) | Out-File -FilePath SHA256SUMS.txt -Encoding ascii
+        Get-Content SHA256SUMS.txt
+
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: XtreemRgbToggle-build
         path: |
-          XtreemRgbToggle-portable.zip
+          XtreemRgbToggle-portable-win-x64-selfcontained.zip
+          XtreemRgbToggle-portable-win-x64-framework.zip
           SHA256SUMS.txt
         retention-days: 30

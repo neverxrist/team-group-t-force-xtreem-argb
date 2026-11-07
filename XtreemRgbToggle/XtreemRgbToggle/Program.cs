@@ -158,7 +158,7 @@ internal static class Program
         var state = StateStore.Load();
         Console.WriteLine($"Saved state: {state}");
         Console.WriteLine(@"(file: %LocalAppData%\XtreemRgbToggle\state.txt)");
-        Console.WriteLine($"Autostart task installed: {AutostartHelper.IsInstalled()}");
+        Console.WriteLine($"Autostart task: {AutostartHelper.QueryInstallState()}");
         return 0;
     }
 

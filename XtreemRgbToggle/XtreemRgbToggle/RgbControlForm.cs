@@ -21,7 +21,7 @@ internal sealed class RgbControlForm : Form
     private bool _hasPendingColor;
     
     private bool _autostartStatusLoaded;
-    private bool _autostartStatusCached;
+    private AutostartInstallState _autostartState = AutostartInstallState.Unknown;
     
     // Modern color palette
     private static readonly Color ColorPrimary = Color.FromArgb(24, 119, 242);
@@ -498,20 +498,34 @@ internal sealed class RgbControlForm : Form
     {
         if (!_autostartStatusLoaded)
         {
-            // Status not yet loaded: show both buttons disabled
             _btnInstallAutostart.Enabled = false;
             _btnRemoveAutostart.Enabled = false;
             _btnInstallAutostart.Text = "Install Autostart (loading...)";
             _btnRemoveAutostart.Text = "Remove Autostart (loading...)";
             return;
         }
-        
-        // Status loaded: enable appropriate button
-        bool isInstalled = _autostartStatusCached;
-        _btnInstallAutostart.Enabled = !busy && !isInstalled;
-        _btnRemoveAutostart.Enabled = !busy && isInstalled;
-        _btnInstallAutostart.Text = "Install Autostart";
-        _btnRemoveAutostart.Text = "Remove Autostart";
+
+        switch (_autostartState)
+        {
+            case AutostartInstallState.Installed:
+                _btnInstallAutostart.Enabled = false;
+                _btnRemoveAutostart.Enabled = !busy;
+                _btnInstallAutostart.Text = "Install Autostart";
+                _btnRemoveAutostart.Text = "Remove Autostart";
+                break;
+            case AutostartInstallState.NotInstalled:
+                _btnInstallAutostart.Enabled = !busy;
+                _btnRemoveAutostart.Enabled = false;
+                _btnInstallAutostart.Text = "Install Autostart";
+                _btnRemoveAutostart.Text = "Remove Autostart";
+                break;
+            default:
+                _btnInstallAutostart.Enabled = false;
+                _btnRemoveAutostart.Enabled = false;
+                _btnInstallAutostart.Text = "Install Autostart (status unknown)";
+                _btnRemoveAutostart.Text = "Remove Autostart (status unknown)";
+                break;
+        }
     }
 
     private void RefreshStatus()
@@ -553,11 +567,10 @@ internal sealed class RgbControlForm : Form
         
         try
         {
-            bool status = await AutostartHelper.IsInstalledAsync();
-            
+            var state = await AutostartHelper.QueryInstallStateAsync();
             Ui(() =>
             {
-                _autostartStatusCached = status;
+                _autostartState = state;
                 _autostartStatusLoaded = true;
                 RefreshAutostartButtons(false);
             });
@@ -567,7 +580,8 @@ internal sealed class RgbControlForm : Form
             DiagnosticTimer.Log($"LoadAutostartStatusAsync failed: {ex.Message}");
             Ui(() =>
             {
-                _autostartStatusLoaded = true; // Mark as loaded even on error
+                _autostartState = AutostartInstallState.Unknown;
+                _autostartStatusLoaded = true;
                 RefreshAutostartButtons(false);
             });
         }
@@ -883,9 +897,8 @@ internal sealed class RgbControlForm : Form
         try
         {
             await Task.Run(() => AutostartHelper.Install());
-            
-            // Reload status
-            _autostartStatusCached = await AutostartHelper.IsInstalledAsync();
+            _autostartState = await AutostartHelper.QueryInstallStateAsync();
+            _autostartStatusLoaded = true;
             
             MessageBox.Show(this,
                 "Autostart installed successfully.\n\n" +
@@ -920,9 +933,8 @@ internal sealed class RgbControlForm : Form
         try
         {
             await Task.Run(() => AutostartHelper.Uninstall());
-            
-            // Reload status
-            _autostartStatusCached = await AutostartHelper.IsInstalledAsync();
+            _autostartState = await AutostartHelper.QueryInstallStateAsync();
+            _autostartStatusLoaded = true;
             
             MessageBox.Show(this, 
                 "Autostart removed successfully.", 
