@@ -43,7 +43,7 @@ jobs:
         Copy-Item native/SmbusPIIX4.bin $out/
         Copy-Item native/COPYING.PawnIO.Modules $out/
         Copy-Item LICENSE $out/LICENSE.txt
-        Copy-Item native-win32/README.md $out/README.txt
+        Copy-Item README.md $out/README.txt
         $dll = Get-Item native/PawnIOLib.dll
         $bin = Get-Item native/SmbusPIIX4.bin
         if ($dll.Length -ne 4096) { throw "PawnIOLib.dll size" }
@@ -54,13 +54,15 @@ jobs:
         @(
           "SOURCE_COMMIT $commit"
           "$hash  XtreemRgbToggle-native-win-x64.zip"
-        ) | Out-File SHA256SUMS-native.txt -Encoding ascii
-        Get-Content SHA256SUMS-native.txt
+        ) | Out-File SHA256SUMS.txt -Encoding ascii
+        Copy-Item SHA256SUMS.txt SHA256SUMS-native.txt
+        Get-Content SHA256SUMS.txt
         Write-Host "ZIP bytes: $((Get-Item XtreemRgbToggle-native-win-x64.zip).Length)"
     - uses: actions/upload-artifact@v4
       with:
         name: XtreemRgbToggle-native
         path: |
           XtreemRgbToggle-native-win-x64.zip
+          SHA256SUMS.txt
           SHA256SUMS-native.txt
         retention-days: 30

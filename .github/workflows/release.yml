@@ -1,68 +1,71 @@
 name: Release
 
+# v* tags used to publish a .NET self-contained ZIP. That would attach the wrong
+# asset to v2.0.1. This workflow now builds the native portable ZIP only and
+# uploads CI artifacts. It does not create or edit GitHub Releases (so it cannot
+# overwrite v1.0.0-pre or native-v2.*-pre).
 on:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  native:
     runs-on: windows-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '8.0.x'
-
-    - name: Restore and test
+    - uses: actions/checkout@v4
+    - name: Configure and build (MSVC via vswhere, NMake)
+      shell: cmd
       run: |
-        dotnet restore XtreemRgbToggle.sln
-        dotnet test XtreemRgbToggle/XtreemRgbToggle.Tests/XtreemRgbToggle.Tests.csproj -c Release --verbosity normal
-
-    - name: Publish self-contained win-x64
-      run: >
-        dotnet publish XtreemRgbToggle/XtreemRgbToggle/XtreemRgbToggle.csproj
-        -c Release -r win-x64 --self-contained true
-        -p:PublishSingleFile=false -p:PublishTrimmed=false
-        -o publish-selfcontained
-
+        for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+          echo VS=%%i
+          call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+        )
+        if not defined VCINSTALLDIR (
+          echo VCINSTALLDIR is empty — Visual Studio C++ tools not found
+          exit /b 1
+        )
+        cmake -S native-win32 -B native-win32/build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+        cmake --build native-win32/build
+    - name: Logic tests (no hardware)
+      run: native-win32\build\out\xtreem_logic_tests.exe
+    - name: GUI smoke (no PawnIO / no SMBus)
+      run: native-win32\build\out\xtreem_gui_smoke.exe
     - name: Package portable ZIP
       shell: pwsh
       run: |
-        Copy-Item native/PawnIOLib.dll publish-selfcontained/ -Force
-        Copy-Item native/SmbusPIIX4.bin publish-selfcontained/ -Force
-        Copy-Item native/COPYING.PawnIO.Modules publish-selfcontained/ -Force
-        Copy-Item README.md publish-selfcontained/README.txt -Force
-        Copy-Item LICENSE publish-selfcontained/LICENSE.txt -Force
-        Compress-Archive -Path publish-selfcontained/* -DestinationPath XtreemRgbToggle-portable-win-x64-selfcontained.zip
-
-    - name: Calculate SHA256
-      shell: pwsh
-      run: |
-        $hash = (Get-FileHash XtreemRgbToggle-portable-win-x64-selfcontained.zip -Algorithm SHA256).Hash
-        "$hash  XtreemRgbToggle-portable-win-x64-selfcontained.zip" | Out-File -FilePath SHA256SUMS.txt -Encoding ascii
+        $exe = "native-win32/build/out/XtreemRgbToggle.exe"
+        if (-not (Test-Path $exe)) { throw "missing $exe" }
+        $out = "native-package"
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        Copy-Item $exe $out/
+        Copy-Item native/PawnIOLib.dll $out/
+        Copy-Item native/SmbusPIIX4.bin $out/
+        Copy-Item native/COPYING.PawnIO.Modules $out/
+        Copy-Item LICENSE $out/LICENSE.txt
+        Copy-Item README.md $out/README.txt
+        $dll = Get-Item native/PawnIOLib.dll
+        $bin = Get-Item native/SmbusPIIX4.bin
+        if ($dll.Length -ne 4096) { throw "PawnIOLib.dll size" }
+        if ($bin.Length -ne 42404) { throw "SmbusPIIX4.bin size" }
+        Compress-Archive -Path $out/* -DestinationPath XtreemRgbToggle-native-win-x64.zip -Force
+        $hash = (Get-FileHash XtreemRgbToggle-native-win-x64.zip -Algorithm SHA256).Hash
+        $commit = git rev-parse HEAD
+        @(
+          "SOURCE_COMMIT $commit"
+          "$hash  XtreemRgbToggle-native-win-x64.zip"
+        ) | Out-File SHA256SUMS.txt -Encoding ascii
+        Copy-Item SHA256SUMS.txt SHA256SUMS-native.txt
         Get-Content SHA256SUMS.txt
-
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
+        Write-Host "ZIP bytes: $((Get-Item XtreemRgbToggle-native-win-x64.zip).Length)"
+    - uses: actions/upload-artifact@v4
       with:
-        files: |
-          XtreemRgbToggle-portable-win-x64-selfcontained.zip
+        name: XtreemRgbToggle-native
+        path: |
+          XtreemRgbToggle-native-win-x64.zip
           SHA256SUMS.txt
-        prerelease: true
-        body: |
-          Self-contained win-x64 portable ZIP (bundles .NET 8 Desktop runtime as a folder).
-
-          PawnIO **kernel driver** is still required from https://pawnio.eu.
-          Bundled PawnIOLib.dll and SmbusPIIX4.bin do not install that driver.
-
-          No installer asset. Hardware/UI timings are unmeasured in CI.
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA256SUMS-native.txt
+        retention-days: 30

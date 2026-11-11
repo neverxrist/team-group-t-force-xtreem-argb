@@ -1,164 +1,74 @@
 # XTREEM RGB Control
 
-Lightweight Windows utility for controlling TEAMGROUP T-Force XTREEM ARGB DDR4 RAM RGB lighting on AMD Ryzen platforms.
+Native Win32 C++ utility for TEAMGROUP T-Force XTREEM ARGB DDR4 lighting on AMD Ryzen (PIIX4 SMBus). No .NET runtime. Portable ZIP is about 260 KB.
 
-A native Win32 C++ portable build lives in [`native-win32/`](native-win32/README.md) (no .NET). The C# WinForms tree remains. The native GUI probes PawnIO **before** any SMBus work and shows a classified driver status plus **Open official PawnIO page** / **Retry after installing** at the top of the window. Off and T-Force Default are in the Effect list (Off is not Static). GUI/tray/restore/off do not AllocConsole. Minimize goes to tray; Close and tray Exit quit. The C# GUI does not probe first: it only hits the driver inside `AmdSmBus.Open` and lumps `pawnio_version` failures as “not installed or not loaded”. The PawnIO **kernel driver** is still installed only from [pawnio.eu](https://pawnio.eu) by the user; this app never downloads the installer; bundled DLL/bin are not that driver.
+**Download:** [v2.0.1](https://github.com/neverxrist/team-group-t-force-xtreem-argb/releases/tag/v2.0.1) (`XtreemRgbToggle-native-win-x64.zip`)
 
-## Features
-
-- **26 Effect Modes** - All modes from OpenRGB source (Static, Rainbow, Breathing, Chase, etc.)
-- **Live Color Preview** - Real-time hardware updates while dragging sliders
-- **Per-Module Control** - Control each RAM stick individually or all at once
-- **System Tray** - Quick toggle from taskbar
-- **Autostart** - Optional OFF at login (scheduled task `XtreemRgbToggle-Off`)
-- **CLI Support** - Command-line for scripts/automation
-- **WinForms .NET 8** - No Electron/Chromium
+A C# WinForms tree remains in this repo for reference only. Use the native ZIP.
 
 ## Requirements
 
-- **Hardware**: TEAMGROUP T-Force XTREEM ARGB DDR4 on AMD Ryzen platform
-- **OS**: Windows 10/11 x64
-- **Privileges**: Administrator (SMBus hardware access required)
-- **PawnIO kernel driver**: must already be installed from [pawnio.eu](https://pawnio.eu). Bundled `PawnIOLib.dll` and `SmbusPIIX4.bin` are user-mode pieces only; they do **not** install the kernel driver.
-- **.NET 8 Desktop Runtime**: required only for the smaller framework-dependent ZIP. The self-contained ZIP bundles the runtime.
+- Windows 10/11 x64
+- Run as Administrator
+- TEAMGROUP T-Force XTREEM ARGB DDR4 on AMD Ryzen (SMBus)
+- **PawnIO kernel driver** installed by you from [pawnio.eu](https://pawnio.eu). This app never downloads or runs that installer. Bundled `PawnIOLib.dll` and `SmbusPIIX4.bin` are user-mode files, not the driver.
 
-## Installation
+## Quick start
 
-### Portable self-contained (recommended)
+1. Unzip to a **permanent** folder (not a temp extract). Keep the DLL and `.bin` next to `XtreemRgbToggle.exe`.
+2. Right-click `XtreemRgbToggle.exe` → Run as administrator.
+3. If PawnIO is missing, use **Open official PawnIO page**, install the driver yourself, then **Retry after installing**.
 
-No separate .NET install. Extract the self-contained ZIP and run `XtreemRgbToggle.exe` as administrator. Size is tens of MB because the .NET 8 Windows Desktop runtime is included as a folder (not a single-file bundle: single-file extracts on startup; trimming/AOT was not used because WinForms is a poor fit).
+## Features
 
-You still need the PawnIO **driver** installed on the machine.
+- Module selection (all or one stick)
+- 26 effects, including **Off** (LEDs black, not Static) and **T-Force Default**
+- Static color, live preview while dragging
+- Per-module profile saved only after a successful **Apply**; restored once after detect on GUI start
+- Optional autostart: Task Scheduler task `XtreemRgbToggle-Off` runs silent `restore` at logon (not unconditional off)
+- Minimize goes to tray; Close and tray **Exit** quit. No extra console window on GUI/tray/restore/off.
 
-### Portable framework-dependent (optional)
+## Logs
 
-Smaller ZIP. Requires [.NET 8 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/8.0) plus the PawnIO driver.
+- `%LocalAppData%\XtreemRgbToggle\restore.log` — always written on `restore` (appends; truncated when larger than 48 KiB)
+- `%LocalAppData%\XtreemRgbToggle\profile.json` — applied colors/effects
+- `XTREEM_DIAG=1` or `--diag` → `%LocalAppData%\XtreemRgbToggle\diagnostic.log` (operation names and milliseconds, no secrets)
 
-### Installer
-
-The Inno Setup script is not a finished/safe installer (dependency download verification incomplete). Do not treat Setup.exe as a published product.
-
-## Usage
-
-### GUI (Default)
-
-Double-click `XtreemRgbToggle.exe` or run without arguments.
-
-**Quick Controls:**
-- **OFF** - Turn off all LEDs
-- **ON** - T-Force Default effect (factory animation)
-
-**Effects:**
-- Select from 26 modes (source-confirmed from OpenRGB)
-- Adjust speed (Fastest → Slowest)
-- Reverse direction (where supported)
-
-**Static Color:**
-- Pick Color button for full color picker
-- R/G/B sliders for precise control
-- Live preview checkbox for real-time hardware updates
-
-**Module Selection:**
-- All modules (both sticks)
-- Individual modules (0x39, 0x3A)
-
-### CLI
+## CLI
 
 ```batch
-XtreemRgbToggle.exe off          # Turn off
-XtreemRgbToggle.exe on           # Turn on (T-Force Default)
-XtreemRgbToggle.exe toggle       # Toggle on/off
-XtreemRgbToggle.exe tray         # System tray icon
-XtreemRgbToggle.exe status       # Show current state
-XtreemRgbToggle.exe detect       # Detect modules
+XtreemRgbToggle.exe              GUI
+XtreemRgbToggle.exe tray         start in tray
+XtreemRgbToggle.exe off|on|toggle|restore
+XtreemRgbToggle.exe detect|status|debug|help
+XtreemRgbToggle.exe install-autostart
+XtreemRgbToggle.exe uninstall-autostart
 ```
 
-### Autostart (Lights OFF at Login)
-
-1. Open GUI
-2. Click **Install Autostart**
-3. Task runs at login with highest privileges, zero delay
-4. Elevated tasks do not appear in Task Manager Startup tab (Windows security design)
-
-## Building from Source
-
-```batch
-dotnet restore XtreemRgbToggle.sln
-dotnet test XtreemRgbToggle\XtreemRgbToggle.Tests\XtreemRgbToggle.Tests.csproj -c Release
-dotnet publish XtreemRgbToggle\XtreemRgbToggle\XtreemRgbToggle.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false
-```
-
-## Supported Hardware
-
-### Verified
-- TEAMGROUP T-Force XTREEM ARGB DDR4
-- AMD Ryzen 5 5600X (PIIX4 SMBus)
-- Module addresses: 0x39, 0x3A on Port 0
-
-### Unverified
-- Intel platforms (different SMBus controller)
-- Other DDR4 RGB modules
-- DDR5 modules
-- Laptop platforms
-
-## Protocol & Modes
-
-Effect modes researched from [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB/-/tree/master/Controllers/TForceXtreemController):
-
-- **Source-confirmed**: All 26 mode IDs (0x00-0x19) in `XtreemRgbToggle/XtreemModes.cs`
-- **Hardware-verified**: Basic OFF/ON register writes
-- **Hardware-unverified**: Visual appearance of effects
+`restore` exit **3** means detect found no modules after a Ready PawnIO probe (this program’s code, not Win32 path-not-found). Exit **6** means found modules did not match saved addresses; nothing is applied. Details go to `restore.log`.
 
 ## Limitations
 
-- **SMBus access**: Requires administrator privileges
-- **AMD only**: Uses AMD SMBus/PIIX4 (Intel platforms have different controllers)
-- **Single module type**: Protocol specific to T-Force XTREEM ARGB DDR4
-- Hardware settling delays in the protocol path are kept; they were not retuned without hardware evidence
+- Tested by the owner on one PC. That is not a broad hardware validation.
+- RGB **Off does not persist across a full power loss**; there is no documented hardware save. Autostart `restore` re-applies the saved profile after logon.
+- No installer / Setup.exe.
+- AMD SMBus only. Intel, DDR5, and other RGB modules are unsupported.
+- Direct SMBus access can interfere with other RGB software (turn off Aura/Armoury Crate).
 
-## Troubleshooting
+## Build from source (Windows, MSVC)
 
-**No modules detected:**
-- Run as Administrator
-- Confirm the PawnIO kernel driver is installed (`https://pawnio.eu`), not only the DLL/bin next to the exe
-- Stop ASUS Aura/Armoury Crate (conflicts with direct SMBus access)
-- Verify `PawnIOLib.dll` and `SmbusPIIX4.bin` are in the same folder as the exe
-
-**Slow startup / UI:**
-Opt-in diagnostic log (operation names and milliseconds only, no secrets):
-
-```cmd
-set XTREEM_DIAG=1
-XtreemRgbToggle.exe
+```bat
+cmake -S native-win32 -B native-win32/build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build native-win32/build
+native-win32\build\out\xtreem_logic_tests.exe
+native-win32\build\out\xtreem_gui_smoke.exe
 ```
 
-Log file: `%LocalAppData%\XtreemRgbToggle\diagnostic.log`
-
-This environment did not run a Windows GUI, so there are no measured first-paint times here. Use the log on the target PC.
-
-**Autostart doesn't work:**
-- Open Task Scheduler → Find `XtreemRgbToggle-Off`
-- Verify: Enabled, "Run with highest privileges" checked
-- Trigger: "At log on" with PT0S (zero) delay
+Logic tests and FakeHw GUI smoke do not talk to real SMBus. The C# project (`XtreemRgbToggle.sln`) is optional reference.
 
 ## License
 
-MIT License - See [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE).
 
-**Third-party components:**
-- OpenRGB protocol research: GPL-2.0-or-later ([OpenRGB Project](https://gitlab.com/CalcProgrammer1/OpenRGB))
-- PawnIO user-mode binaries: See [native/COPYING.PawnIO.Modules](native/COPYING.PawnIO.Modules)
-- Bundled .NET 8 runtime (self-contained ZIP): Microsoft software license
-
-## Credits
-
-- Protocol research based on [OpenRGB T-Force Xtreem controller](https://gitlab.com/CalcProgrammer1/OpenRGB/-/tree/master/Controllers/TForceXtreemController) by Milan Cermak (krysmanta)
-- PawnIO SMBus access (kernel driver from vendor; user-mode binaries redistributed)
-
-## Contributing
-
-Issues and pull requests welcome. Please test on actual hardware before submitting.
-
-## Disclaimer
-
-**USE AT YOUR OWN RISK.** Direct SMBus access can potentially cause hardware issues if misused. This tool writes to documented RAM RGB controller registers only. Always run reputable RGB control software to verify your hardware works before using alternative tools.
+- OpenRGB protocol research (reference only, no source copied): GPL-2.0-or-later, [T-Force Xtreem controller](https://gitlab.com/CalcProgrammer1/OpenRGB/-/tree/master/Controllers/TForceXtreemController) (Milan Cermak / krysmanta)
+- PawnIO user-mode binaries: LGPL — [native/COPYING.PawnIO.Modules](native/COPYING.PawnIO.Modules)
