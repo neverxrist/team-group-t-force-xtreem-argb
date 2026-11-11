@@ -29,7 +29,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
 
         _notifyIcon.MouseClick += OnIconClick;
-        UpdateAutostartMenu();
+        _contextMenu.Items[6].Enabled = false;
+        _contextMenu.Items[7].Enabled = false;
+        _ = Task.Run(() =>
+        {
+            var state = AutostartHelper.QueryInstallState();
+            try
+            {
+                if (!_contextMenu.IsDisposed)
+                    _contextMenu.BeginInvoke(() => ApplyAutostartMenu(state));
+            }
+            catch { }
+        });
     }
 
     private void OnIconClick(object? sender, MouseEventArgs e)
@@ -133,9 +144,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void UpdateAutostartMenu()
     {
-        bool hasAutostart = AutostartHelper.IsInstalled();
-        _contextMenu.Items[6].Enabled = !hasAutostart; // Install
-        _contextMenu.Items[7].Enabled = hasAutostart;  // Remove
+        ApplyAutostartMenu(AutostartHelper.QueryInstallState());
+    }
+
+    private void ApplyAutostartMenu(AutostartInstallState state)
+    {
+        _contextMenu.Items[6].Enabled = state == AutostartInstallState.NotInstalled;
+        _contextMenu.Items[7].Enabled = state == AutostartInstallState.Installed;
     }
 
     protected override void Dispose(bool disposing)

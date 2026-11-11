@@ -7,6 +7,15 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Enable diagnostic logging if env var set or --diag flag
+        if (Environment.GetEnvironmentVariable("XTREEM_DIAG") == "1" || 
+            args.Any(a => a is "--diag" or "-d"))
+        {
+            DiagnosticTimer.Enabled = true;
+        }
+        
+        using var appTimer = DiagnosticTimer.Start("Application startup");
+        
         string baseDir = AppContext.BaseDirectory;
         SetDllDirectory(baseDir);
 
@@ -149,7 +158,7 @@ internal static class Program
         var state = StateStore.Load();
         Console.WriteLine($"Saved state: {state}");
         Console.WriteLine(@"(file: %LocalAppData%\XtreemRgbToggle\state.txt)");
-        Console.WriteLine($"Autostart task installed: {AutostartHelper.IsInstalled()}");
+        Console.WriteLine($"Autostart task: {AutostartHelper.QueryInstallState()}");
         return 0;
     }
 
@@ -235,8 +244,11 @@ internal static class Program
 
     private static int RunGui()
     {
+        using var timer = DiagnosticTimer.Start("RunGui (Application.Run)");
+        DiagnosticTimer.Log("Enabling visual styles");
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        DiagnosticTimer.Log("Creating RgbControlForm");
         Application.Run(new RgbControlForm());
         return 0;
     }

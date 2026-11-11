@@ -1,25 +1,25 @@
 namespace XtreemRgbToggle;
 
-internal enum LightState
+public enum LightState
 {
     Unknown = 0,
     Off = 1,
     On = 2
 }
 
-internal static class StateStore
+public static class StateStore
 {
-    private static string StatePath =>
+    private static string DefaultStatePath =>
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "XtreemRgbToggle",
             "state.txt");
 
-    public static LightState Load()
+    public static LightState Load(string? path = null)
     {
         try
         {
-            string path = StatePath;
+            path ??= DefaultStatePath;
             if (!File.Exists(path)) return LightState.Unknown;
             string text = File.ReadAllText(path).Trim();
             return text.ToLowerInvariant() switch
@@ -35,9 +35,9 @@ internal static class StateStore
         }
     }
 
-    public static void Save(LightState state)
+    public static void Save(LightState state, string? path = null)
     {
-        string path = StatePath;
+        path ??= DefaultStatePath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, state == LightState.Off ? "off" : "on");
     }

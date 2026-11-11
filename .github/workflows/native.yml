@@ -1,0 +1,66 @@
+name: Native Win32
+
+on:
+  push:
+    branches: [ main, cursor/native-win32-rewrite-a901 ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Configure and build (MSVC via vswhere, NMake)
+      shell: cmd
+      run: |
+        for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+          echo VS=%%i
+          call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+        )
+        if not defined VCINSTALLDIR (
+          echo VCINSTALLDIR is empty — Visual Studio C++ tools not found
+          exit /b 1
+        )
+        cmake -S native-win32 -B native-win32/build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+        cmake --build native-win32/build
+    - name: Logic tests (no hardware)
+      run: native-win32\build\out\xtreem_logic_tests.exe
+    - name: GUI smoke (no PawnIO / no SMBus)
+      run: native-win32\build\out\xtreem_gui_smoke.exe
+    - name: Package portable ZIP
+      shell: pwsh
+      run: |
+        $exe = "native-win32/build/out/XtreemRgbToggle.exe"
+        if (-not (Test-Path $exe)) { throw "missing $exe" }
+        $out = "native-package"
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        Copy-Item $exe $out/
+        Copy-Item native/PawnIOLib.dll $out/
+        Copy-Item native/SmbusPIIX4.bin $out/
+        Copy-Item native/COPYING.PawnIO.Modules $out/
+        Copy-Item LICENSE $out/LICENSE.txt
+        Copy-Item native-win32/README.md $out/README.txt
+        $dll = Get-Item native/PawnIOLib.dll
+        $bin = Get-Item native/SmbusPIIX4.bin
+        if ($dll.Length -ne 4096) { throw "PawnIOLib.dll size" }
+        if ($bin.Length -ne 42404) { throw "SmbusPIIX4.bin size" }
+        Compress-Archive -Path $out/* -DestinationPath XtreemRgbToggle-native-win-x64.zip -Force
+        $hash = (Get-FileHash XtreemRgbToggle-native-win-x64.zip -Algorithm SHA256).Hash
+        $commit = git rev-parse HEAD
+        @(
+          "SOURCE_COMMIT $commit"
+          "$hash  XtreemRgbToggle-native-win-x64.zip"
+        ) | Out-File SHA256SUMS-native.txt -Encoding ascii
+        Get-Content SHA256SUMS-native.txt
+        Write-Host "ZIP bytes: $((Get-Item XtreemRgbToggle-native-win-x64.zip).Length)"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: XtreemRgbToggle-native
+        path: |
+          XtreemRgbToggle-native-win-x64.zip
+          SHA256SUMS-native.txt
+        retention-days: 30
